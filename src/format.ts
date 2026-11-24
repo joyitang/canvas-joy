@@ -289,8 +289,10 @@ export class FormatBar {
     // (Heptabase flips too, instead of clipping the bar at the window edge).
     let top = rect.top - height - 8;
     if (top < 8) top = Math.min(window.innerHeight - height - 8, rect.bottom + 8);
-    this.el.style.left = `${Math.round(left)}px`;
-    this.el.style.top = `${Math.round(top)}px`;
+    this.el.setCssProps({
+      "--jce-fmt-left": `${Math.round(left)}px`,
+      "--jce-fmt-top": `${Math.round(top)}px`,
+    });
   }
 
   private schedule(): void {
@@ -391,7 +393,7 @@ export class FormatBar {
         swatch.classList.add("is-clear");
         swatch.title = "清除 / Clear";
       } else {
-        swatch.style.background = hex;
+        swatch.setCssProps({ "--jce-swatch-bg": hex });
         swatch.title = hex;
       }
       swatch.addEventListener("mousedown", (evt) => evt.preventDefault());

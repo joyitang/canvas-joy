@@ -221,8 +221,8 @@ export class Chrome {
     }
     // Card background is a per-card choice stored in the .canvas file.
     const bg = kind === "note" ? cardBgOf(node) : "";
-    if (bg && /^#[0-9a-f]{3,8}$/i.test(bg)) el.style.setProperty("--jce-note-bg", bg);
-    else el.style.removeProperty("--jce-note-bg");
+    if (bg && /^#[0-9a-f]{3,8}$/i.test(bg)) el.setCssProps({ "--jce-note-bg": bg });
+    else el.setCssProps({ "--jce-note-bg": "" });
   }
 
   /** Editing happens inside a same-origin iframe that Obsidian recreates each

@@ -103,13 +103,12 @@ export function drawOverlay(canvas: CanvasLike): void {
 }
 
 function styleOverlay(svg: SVGSVGElement, left: number, top: number, w: number, h: number): void {
-  svg.style.position = "absolute";
-  svg.style.left = `${left}px`;
-  svg.style.top = `${top}px`;
-  svg.style.width = `${w}px`;
-  svg.style.height = `${h}px`;
-  svg.style.overflow = "visible";
-  svg.style.pointerEvents = "none";
+  svg.setCssProps({
+    "--jce-ov-left": `${left}px`,
+    "--jce-ov-top": `${top}px`,
+    "--jce-ov-w": `${w}px`,
+    "--jce-ov-h": `${h}px`,
+  });
 }
 
 /** Sample coordinates from a segment so we can size the viewBox. */

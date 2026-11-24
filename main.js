@@ -888,13 +888,12 @@ function drawOverlay(canvas) {
   svg.replaceChildren(frag);
 }
 function styleOverlay(svg, left, top, w, h) {
-  svg.style.position = "absolute";
-  svg.style.left = `${left}px`;
-  svg.style.top = `${top}px`;
-  svg.style.width = `${w}px`;
-  svg.style.height = `${h}px`;
-  svg.style.overflow = "visible";
-  svg.style.pointerEvents = "none";
+  svg.setCssProps({
+    "--jce-ov-left": `${left}px`,
+    "--jce-ov-top": `${top}px`,
+    "--jce-ov-w": `${w}px`,
+    "--jce-ov-h": `${h}px`
+  });
 }
 function pointsOf(seg) {
   const nums = seg.d.match(/-?\d+(\.\d+)?/g) ?? [];
@@ -1076,8 +1075,8 @@ var Chrome = class {
       el.classList.toggle("jce-section-tinted", kind === "section" && !!node.color);
     }
     const bg = kind === "note" ? cardBgOf(node) : "";
-    if (bg && /^#[0-9a-f]{3,8}$/i.test(bg)) el.style.setProperty("--jce-note-bg", bg);
-    else el.style.removeProperty("--jce-note-bg");
+    if (bg && /^#[0-9a-f]{3,8}$/i.test(bg)) el.setCssProps({ "--jce-note-bg": bg });
+    else el.setCssProps({ "--jce-note-bg": "" });
   }
   /** Editing happens inside a same-origin iframe that Obsidian recreates each
    *  time; paint it on every appearance. Note cards need the white block to go
@@ -1739,8 +1738,10 @@ var FormatBar = class {
     const left = Math.min(window.innerWidth - width - 8, Math.max(minLeft, centered));
     let top = rect.top - height - 8;
     if (top < 8) top = Math.min(window.innerHeight - height - 8, rect.bottom + 8);
-    this.el.style.left = `${Math.round(left)}px`;
-    this.el.style.top = `${Math.round(top)}px`;
+    this.el.setCssProps({
+      "--jce-fmt-left": `${Math.round(left)}px`,
+      "--jce-fmt-top": `${Math.round(top)}px`
+    });
   }
   schedule() {
     window.clearTimeout(this.syncTimer);
@@ -1833,7 +1834,7 @@ var FormatBar = class {
         swatch.classList.add("is-clear");
         swatch.title = "\u6E05\u9664 / Clear";
       } else {
-        swatch.style.background = hex;
+        swatch.setCssProps({ "--jce-swatch-bg": hex });
         swatch.title = hex;
       }
       swatch.addEventListener("mousedown", (evt) => evt.preventDefault());
@@ -3231,7 +3232,7 @@ ${compact ? "C" : ""}`;
   detach(canvas) {
     this.lastScale.delete(canvas);
     canvas.wrapperEl.classList.remove("jce-zoom-far");
-    canvas.wrapperEl.style.removeProperty("--jce-scale");
+    canvas.wrapperEl.setCssProps({ "--jce-scale": "" });
     for (const node of allNodes(canvas)) {
       node.nodeEl.querySelector(".jce-lod-overlay")?.remove();
     }

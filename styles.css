@@ -84,6 +84,8 @@
 
 .jce-format-bar {
   position: fixed;
+  left: var(--jce-fmt-left, 0px);
+  top: var(--jce-fmt-top, 0px);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -243,6 +245,7 @@
   padding: 0;
   border-radius: 5px;
   border: 1px solid var(--background-modifier-border);
+  background: var(--jce-swatch-bg, transparent);
   box-shadow: none;
   cursor: pointer;
 }
@@ -415,6 +418,10 @@
 
 .jce-overlay {
   position: absolute;
+  left: var(--jce-ov-left, 0px);
+  top: var(--jce-ov-top, 0px);
+  width: var(--jce-ov-w, 0px);
+  height: var(--jce-ov-h, 0px);
   overflow: visible;
   pointer-events: none;
   z-index: 0;

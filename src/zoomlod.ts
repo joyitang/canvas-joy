@@ -84,7 +84,7 @@ export class ZoomLodController {
   detach(canvas: CanvasLike): void {
     this.lastScale.delete(canvas);
     canvas.wrapperEl.classList.remove("jce-zoom-far");
-    canvas.wrapperEl.style.removeProperty("--jce-scale");
+    canvas.wrapperEl.setCssProps({ "--jce-scale": "" });
     for (const node of allNodes(canvas)) {
       node.nodeEl.querySelector(".jce-lod-overlay")?.remove();
     }
