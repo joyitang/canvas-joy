@@ -9,7 +9,7 @@
 
 import { setIcon } from "obsidian";
 import { MINIMAP_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
-import { ICONS } from "./icons";
+import { renderToolIcon } from "./icons";
 
 export class CanvasToolbar {
   el: HTMLElement;
@@ -28,7 +28,6 @@ export class CanvasToolbar {
     this.el.setAttribute("aria-label", "Canvas Joy");
 
     const order: ToolId[] = ["select", "connect", "note", "text", "todo", "mindmap", "section"];
-    const parser = new DOMParser();
     order.forEach((id, index) => {
       if (index === 2) {
         this.el.createDiv({ cls: "jce-tool-sep" });
@@ -43,13 +42,7 @@ export class CanvasToolbar {
           "aria-label": tooltip(meta),
         },
       });
-      const rawSvg = ICONS[id];
-      if (rawSvg) {
-        const doc = parser.parseFromString(rawSvg, "image/svg+xml");
-        if (doc.documentElement.tagName.toLowerCase() === "svg") {
-          btn.appendChild(document.importNode(doc.documentElement, true));
-        }
-      }
+      renderToolIcon(btn, id);
       btn.addEventListener("mousedown", (evt) => evt.preventDefault());
       btn.addEventListener("click", (evt) => {
         evt.preventDefault();
