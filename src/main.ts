@@ -5,7 +5,7 @@
  * Obsidian 1.15 Canvas internals; see bridge.ts for the verified assumptions.
  */
 
-import { Plugin, WorkspaceLeaf } from "obsidian";
+import { FileView, Plugin, Scope, WorkspaceLeaf } from "obsidian";
 import {
   CanvasLike,
   NodeLike,
@@ -15,19 +15,23 @@ import {
   isEditing,
   isInsideCanvasUi,
   selectedNodes,
+  viewportCenter,
 } from "./bridge";
 import { Chrome } from "./chrome";
+import { CardCollapseController } from "./collapse";
 import { ConnectTool } from "./connect";
+import { FocusController } from "./focus";
 import { FormatBar } from "./format";
 import { CanvasToolbar } from "./toolbar";
 import { ContextMenus } from "./menus";
 import { MindmapController } from "./mindmap";
-import { createObject } from "./objects";
+import { createObject, tag } from "./objects";
+import { CanvasSearchBar } from "./search";
 import { TodoController } from "./todo";
+import { ZoomLodController } from "./zoomlod";
 import { DEFAULTS, ToolId, TOOLS } from "./copy";
 import { Kind, isMindmap, kindOf, rootIdOf, treeOf, descendantsOf, CARD_BG } from "./model";
-import { viewportCenter } from "./bridge";
-import { KIND_SIZE } from "./layout";
+import { KIND_SIZE, rectOf, unionRect } from "./layout";
 
 const TOOL_KEYS: Record<string, ToolId> = {
   v: "select",
@@ -46,14 +50,37 @@ export default class CanvasEnhancePlugin extends Plugin {
   private connect!: ConnectTool;
   private menus!: ContextMenus;
   private todo!: TodoController;
+  private search!: CanvasSearchBar;
+  private focus!: FocusController;
+  private collapse!: CardCollapseController;
+  private zoomLod!: ZoomLodController;
+  private keyScope: Scope | null = null;
 
   private toolbars = new Map<CanvasLike, CanvasToolbar>();
   private placing: { canvas: CanvasLike; kind: Kind; text?: string } | null = null;
+  private blankDown: { canvas: CanvasLike; x: number; y: number } | null = null;
   private hookedDocs = new WeakSet<Document>();
   private frameHooks = new WeakSet<CanvasLike>();
 
   async onload(): Promise<void> {
-    this.chrome = new Chrome(this, (canvas) => this.hookFrames(canvas));
+    this.collapse = new CardCollapseController();
+    this.zoomLod = new ZoomLodController();
+    this.focus = new FocusController();
+    this.search = new CanvasSearchBar({
+      onRevealNode: (canvas, nodeId) => {
+        this.collapse.expandContainingGroup(canvas, nodeId);
+        this.chrome.invalidate(canvas);
+      },
+      onOpenChange: (canvas, open) => {
+        this.toolbars.get(canvas)?.setSearchActive(open);
+      },
+    });
+    this.chrome = new Chrome(this, (canvas) => {
+      this.hookFrames(canvas);
+      this.collapse.sync(canvas);
+      this.zoomLod.sync(canvas);
+      this.focus.sync(canvas);
+    });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
@@ -69,13 +96,44 @@ export default class CanvasEnhancePlugin extends Plugin {
       setCardBg: (canvas, nodeId, color) => this.setCardBg(canvas, nodeId, color),
       rotate: (canvas, nodeId) => this.mindmap.rotate(canvas, nodeId),
       setFolded: (canvas, nodeId, folded) => this.mindmap.setFolded(canvas, nodeId, folded),
+      focus: (canvas, node) => {
+        const sel = selectedNodes(canvas);
+        const targets = sel.some((n) => n.id === node.id) ? sel : [node];
+        this.focus.enter(canvas, targets);
+      },
+      unfocus: (canvas) => this.focus.exit(canvas),
+      isFocused: (canvas) => this.focus.isActive(canvas),
+      groupSelection: (canvas, fallbackNode) => this.groupSelection(canvas, fallbackNode),
+      toggleCardFold: (canvas, nodeId) => {
+        this.collapse.toggle(canvas, nodeId);
+        this.chrome.invalidate(canvas);
+      },
     });
 
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("file-open", () => window.setTimeout(() => this.sync(), 60)));
 
-    this.registerDomEvent(document, "keydown", (evt) => this.onKey(evt), true);
+    this.registerDomEvent(window, "keydown", (evt) => this.onKey(evt), true);
+
+    // Official Obsidian Scope runs ahead of built-in hotkeys (e.g. ⌘G Graph View)
+    // so ⌘G and ⌘F work seamlessly on Canvas while falling through elsewhere.
+    const scope = new Scope(this.app.scope);
+    scope.register(["Mod"], "g", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.groupSelection(canvas);
+      this.setActive(canvas, "select");
+      return false;
+    });
+    scope.register(["Mod"], "f", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.search.open(canvas);
+      return false;
+    });
+    this.app.keymap.pushScope(scope);
+    this.keyScope = scope;
     // Window capture: a preview checkbox must win over the canvas node
     // selection, which would otherwise swallow the click.
     this.registerDomEvent(window, "pointerdown", (evt) => this.todo.onPointerDown(evt), true);
@@ -85,26 +143,85 @@ export default class CanvasEnhancePlugin extends Plugin {
       document,
       "pointerdown",
       (evt) => {
-        if (this.placing) this.onPlaceClick(evt);
+        if (this.placing) {
+          this.onPlaceClick(evt);
+        } else if (evt.button === 0) {
+          const canvas = activeCanvas(this.app);
+          const target = evt.target as Element | null;
+          if (
+            canvas &&
+            this.focus.isActive(canvas) &&
+            target &&
+            canvas.wrapperEl.contains(target) &&
+            !target.closest(".canvas-node") &&
+            !isInsideCanvasUi(target)
+          ) {
+            this.blankDown = { canvas, x: evt.clientX, y: evt.clientY };
+          } else {
+            this.blankDown = null;
+          }
+        }
         this.syncSelectionChrome();
       },
       true
     );
-    this.registerDomEvent(document, "pointerup", () => this.syncSelectionChrome(), true);
+    this.registerDomEvent(
+      document,
+      "pointerup",
+      (evt) => {
+        if (this.blankDown) {
+          const down = this.blankDown;
+          this.blankDown = null;
+          if (Math.hypot(evt.clientX - down.x, evt.clientY - down.y) < 6) {
+            this.focus.onCanvasBlankClick(down.canvas);
+          }
+        }
+        this.syncSelectionChrome();
+      },
+      true
+    );
 
     this.addCommand({
       id: "create-section",
-      name: "新建分区 / Create Section",
+      name: "新建分区 / Create section",
       checkCallback: (checking) => {
         const canvas = activeCanvas(this.app);
         if (!canvas) return false;
-        if (!checking) {
-          createObject(this.chrome, {
-            canvas,
-            kind: "section",
-            at: viewportCenter(canvas, KIND_SIZE.section),
-          });
-        }
+        if (!checking) this.groupSelection(canvas);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "search-canvas",
+      name: "画布内搜索 / Search in canvas",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.search.open(canvas);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "切换聚焦模式 / Toggle focus mode",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!this.focus.isActive(canvas) && !selectedNodes(canvas).length) return false;
+        if (!checking) this.focus.toggle(canvas);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "group-selection-into-section",
+      name: "框选打包进分区 / Group selection into section",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.groupSelection(canvas);
         return true;
       },
     });
@@ -126,10 +243,21 @@ export default class CanvasEnhancePlugin extends Plugin {
   }
 
   onunload(): void {
+    if (this.keyScope) {
+      this.app.keymap.popScope(this.keyScope);
+      this.keyScope = null;
+    }
     this.setPlacing(null);
+    this.blankDown = null;
     this.connect.exit();
     this.formats.hide();
-    for (const canvas of this.toolbars.keys()) this.chrome.detach(canvas);
+    this.search.destroy();
+    this.focus.destroy();
+    for (const canvas of this.toolbars.keys()) {
+      this.collapse.detach(canvas);
+      this.zoomLod.detach(canvas);
+      this.chrome.detach(canvas);
+    }
     for (const bar of this.toolbars.values()) bar.detach();
     this.toolbars.clear();
   }
@@ -150,6 +278,10 @@ export default class CanvasEnhancePlugin extends Plugin {
     for (const [canvas, bar] of Array.from(this.toolbars)) {
       if (seen.has(canvas)) continue;
       bar.detach();
+      this.search.detach(canvas);
+      this.focus.detach(canvas);
+      this.collapse.detach(canvas);
+      this.zoomLod.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -161,8 +293,10 @@ export default class CanvasEnhancePlugin extends Plugin {
     const existing = this.toolbars.get(canvas);
     if (existing && host.contains(existing.el)) return;
     existing?.detach();
-    if (getComputedStyle(host).position === "static") host.style.position = "relative";
-    const bar = new CanvasToolbar((tool) => this.onTool(canvas, tool));
+    const bar = new CanvasToolbar(
+      (tool) => this.onTool(canvas, tool),
+      () => this.search.toggle(canvas)
+    );
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
@@ -283,6 +417,18 @@ export default class CanvasEnhancePlugin extends Plugin {
     if (!canvas) return;
 
     if (evt.key === "Escape") {
+      if (this.search.isOpen(canvas)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.search.close(canvas);
+        return;
+      }
+      if (this.focus.isActive(canvas)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.focus.exit(canvas);
+        return;
+      }
       this.setPlacing(null);
       this.connect.exit();
       this.formats.hide();
@@ -291,15 +437,24 @@ export default class CanvasEnhancePlugin extends Plugin {
     }
 
     if (evt.metaKey || evt.ctrlKey) {
-      if (!evt.shiftKey && !evt.altKey && evt.key.toLowerCase() === "g") {
-        if (isTyping(evt.target)) return;
-        evt.preventDefault();
-        createObject(this.chrome, {
-          canvas,
-          kind: "section",
-          at: viewportCenter(canvas, KIND_SIZE.section),
-        });
-        this.setActive(canvas, "select");
+      if (!evt.shiftKey && !evt.altKey) {
+        const key = evt.key.toLowerCase();
+        if (key === "f") {
+          if (isTyping(evt.target)) return;
+          evt.preventDefault();
+          evt.stopPropagation();
+          evt.stopImmediatePropagation();
+          this.search.open(canvas);
+          return;
+        }
+        if (key === "g") {
+          if (isTyping(evt.target)) return;
+          evt.preventDefault();
+          evt.stopPropagation();
+          evt.stopImmediatePropagation();
+          this.groupSelection(canvas);
+          this.setActive(canvas, "select");
+        }
       }
       return;
     }
@@ -318,7 +473,16 @@ export default class CanvasEnhancePlugin extends Plugin {
     if (isTyping(evt.target)) return;
     if (evt.altKey || evt.shiftKey) return;
 
-    const tool = TOOL_KEYS[evt.key.toLowerCase()];
+    const lower = evt.key.toLowerCase();
+    if (lower === "f") {
+      if (this.focus.isActive(canvas) || selectedNodes(canvas).length > 0) {
+        evt.preventDefault();
+        this.focus.toggle(canvas);
+      }
+      return;
+    }
+
+    const tool = TOOL_KEYS[lower];
     if (!tool) return;
     evt.preventDefault();
     this.onTool(canvas, tool);
@@ -397,6 +561,48 @@ export default class CanvasEnhancePlugin extends Plugin {
    * behind would silently break the hierarchy. PRD §10.1 marks the treatment
    * of descendants as undecided, so this is a documented proposal.
    */
+  private groupSelection(canvas: CanvasLike, fallbackNode?: NodeLike): void {
+    const sel = selectedNodes(canvas).filter(
+      (n) => !n.nodeEl.classList.contains("jce-sec-hidden")
+    );
+    let targets: NodeLike[];
+    if (fallbackNode) {
+      targets = sel.some((n) => n.id === fallbackNode.id) ? sel : [fallbackNode];
+    } else {
+      targets = sel;
+    }
+
+    if (!targets.length) {
+      createObject(this.chrome, {
+        canvas,
+        kind: "section",
+        at: viewportCenter(canvas, KIND_SIZE.section),
+      });
+      return;
+    }
+
+    const box = unionRect(targets.map(rectOf));
+    if (!box) return;
+    const padX = 32;
+    const padTop = 44;
+    const padBottom = 32;
+    const group = canvas.createGroupNode({
+      pos: { x: Math.round(box.x - padX), y: Math.round(box.y - padTop) },
+      size: {
+        width: Math.round(box.width + padX * 2),
+        height: Math.round(box.height + padTop + padBottom),
+      },
+      label: DEFAULTS.section,
+      focus: false,
+      save: true,
+    });
+    if (!group) return;
+    tag(canvas, group, "section");
+    commit(canvas);
+    this.chrome.invalidate(canvas);
+    canvas.selectOnly(group);
+  }
+
   private removeNode(canvas: CanvasLike, nodeId: string): void {
     const node = canvas.nodes.get(nodeId);
     if (!node) return;
@@ -417,11 +623,10 @@ function canvasOf(leaf: WorkspaceLeaf): CanvasLike | null {
   return view.canvas ?? null;
 }
 
-function activeCanvas(app: { workspace: { activeLeaf?: WorkspaceLeaf | null } }): CanvasLike | null {
-  const leaf = app.workspace.activeLeaf;
-  if (!leaf) return null;
-  if ((leaf.view as { getViewType?: () => string }).getViewType?.() !== "canvas") return null;
-  return canvasOf(leaf);
+function activeCanvas(app: Plugin["app"]): CanvasLike | null {
+  const view = app.workspace.getActiveViewOfType(FileView);
+  if (!view || view.getViewType() !== "canvas") return null;
+  return (view as unknown as { canvas?: CanvasLike }).canvas ?? null;
 }
 
 function nodeById(canvas: CanvasLike, id: string): NodeLike | undefined {

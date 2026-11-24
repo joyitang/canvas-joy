@@ -7,14 +7,19 @@
  * arrangement rather than inventing a grid.
  */
 
-import { TOOLS, ToolId, tooltip } from "./copy";
+import { setIcon } from "obsidian";
+import { SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
 import { ICONS } from "./icons";
 
 export class CanvasToolbar {
   el: HTMLElement;
   private current: ToolId | null = "select";
+  private searchBtn: HTMLButtonElement;
 
-  constructor(private onPick: (id: ToolId) => void) {
+  constructor(
+    private onPick: (id: ToolId) => void,
+    private onSearch: () => void
+  ) {
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
     this.el.setAttribute("role", "toolbar");
@@ -44,14 +49,39 @@ export class CanvasToolbar {
       this.el.appendChild(btn);
     });
 
+    this.el.createDiv({ cls: "jce-tool-sep" });
+
+    const searchBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-search",
+      attr: {
+        "data-tool": "search",
+        title: tooltip(SEARCH_TOOL),
+        "aria-label": tooltip(SEARCH_TOOL),
+      },
+    });
+    setIcon(searchBtn, "search");
+    searchBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    searchBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onSearch();
+    });
+    this.searchBtn = searchBtn;
+
     this.setActive("select");
   }
 
   setActive(id: ToolId | null): void {
     this.current = id;
     this.el.querySelectorAll<HTMLElement>(".jce-tool").forEach((btn) => {
+      if (btn === this.searchBtn) return;
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
+  }
+
+  setSearchActive(active: boolean): void {
+    this.searchBtn.classList.toggle("is-active", active);
   }
 
   getActive(): ToolId | null {

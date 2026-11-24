@@ -15,6 +15,8 @@ export const TOOLS = {
 
 export type ToolId = keyof typeof TOOLS;
 
+export const SEARCH_TOOL = { id: "search", zh: "搜索", en: "Search", key: "⌘F" } as const;
+
 export const MENU = {
   color: { zh: "颜色", en: "Color" },
   cardBg: { zh: "卡片底色", en: "Card background" },
@@ -22,6 +24,11 @@ export const MENU = {
   fold: { zh: "折叠", en: "Fold" },
   unfold: { zh: "展开", en: "Unfold" },
   rotate: { zh: "旋转", en: "Rotate" },
+  focus: { zh: "聚焦", en: "Focus" },
+  unfocus: { zh: "退出聚焦", en: "Exit focus" },
+  groupSection: { zh: "打包进分区", en: "Group into section" },
+  collapseCard: { zh: "折叠", en: "Collapse" },
+  expandCard: { zh: "展开", en: "Expand" },
 } as const;
 
 export const DEFAULTS = {

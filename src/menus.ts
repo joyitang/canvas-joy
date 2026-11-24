@@ -7,15 +7,18 @@
  * behaviour does not depend on Obsidian's dismissal timing.
  */
 
-import { Menu, type Plugin } from "obsidian";
-import { CanvasLike, NodeLike, Point, isInsideCanvasUi } from "./bridge";
+import { FileView, Menu, type Plugin } from "obsidian";
+import { CanvasLike, NodeLike, Point, isInsideCanvasUi, selectedNodes } from "./bridge";
 import { MENU, TOOLS, menuLabel } from "./copy";
 import {
   CARD_BG_PALETTE,
   Kind,
   cardBgOf,
   hasChildren,
+  isCardFolded,
+  isCollapsible,
   isFolded,
+  isGroupNode,
   isMindmap,
   kindOf,
 } from "./model";
@@ -27,6 +30,11 @@ type Handlers = {
   setCardBg: (canvas: CanvasLike, nodeId: string, color: string) => void;
   rotate: (canvas: CanvasLike, nodeId: string) => void;
   setFolded: (canvas: CanvasLike, nodeId: string, folded: boolean) => void;
+  focus: (canvas: CanvasLike, node: NodeLike) => void;
+  unfocus: (canvas: CanvasLike) => void;
+  isFocused: (canvas: CanvasLike) => boolean;
+  groupSelection: (canvas: CanvasLike, fallbackNode?: NodeLike) => void;
+  toggleCardFold: (canvas: CanvasLike, nodeId: string) => void;
 };
 
 const PALETTE: { id: string; label: string; swatch: string }[] = [
@@ -163,6 +171,38 @@ export class ContextMenus {
       });
     }
 
+    if (isCollapsible(node)) {
+      const folded = isCardFolded(node);
+      const item = folded ? MENU.expandCard : MENU.collapseCard;
+      menu.addItem((row) =>
+        row
+          .setTitle(menuLabel(item))
+          .setIcon(folded ? "chevrons-down-up" : "chevrons-up-down")
+          .onClick(() => this.handlers.toggleCardFold(canvas, node.id))
+      );
+    }
+
+    const focused = this.handlers.isFocused(canvas);
+    menu.addItem((row) =>
+      row
+        .setTitle(menuLabel(focused ? MENU.unfocus : MENU.focus))
+        .setIcon("eye")
+        .onClick(() => {
+          if (focused) this.handlers.unfocus(canvas);
+          else this.handlers.focus(canvas, node);
+        })
+    );
+
+    const sel = selectedNodes(canvas);
+    if (sel.length > 1 || !isGroupNode(node)) {
+      menu.addItem((row) =>
+        row
+          .setTitle(menuLabel(MENU.groupSection))
+          .setIcon("frame")
+          .onClick(() => this.handlers.groupSelection(canvas, node))
+      );
+    }
+
     menu.addItem((item) =>
       item
         .setTitle(menuLabel(MENU.remove))
@@ -203,8 +243,11 @@ function canvasFromWrapper(plugin: Plugin, wrapper: HTMLElement): CanvasLike | n
     const view = leaf.view as { canvas?: CanvasLike };
     if (view.canvas?.wrapperEl === wrapper) return view.canvas;
   }
-  const active = plugin.app.workspace.activeLeaf?.view as { canvas?: CanvasLike } | undefined;
-  return active?.canvas ?? null;
+  const active = plugin.app.workspace.getActiveViewOfType(FileView);
+  if (active && active.getViewType() === "canvas") {
+    return (active as unknown as { canvas?: CanvasLike }).canvas ?? null;
+  }
+  return null;
 }
 
 function nodeFromWrapper(canvas: CanvasLike, target: Element | null): NodeLike | null {

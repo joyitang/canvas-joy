@@ -1,7 +1,7 @@
 {
   "id": "canvas-enhance",
   "name": "Canvas 增强",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "minAppVersion": "1.5.0",
   "description": "在 Obsidian 原生 Canvas 上提供 Heptabase 风格的工具栏、笔记卡、Text、思维导图与分区。",
   "author": "JOY",

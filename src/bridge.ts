@@ -47,17 +47,24 @@ export interface NodeLike {
   width: number;
   height: number;
   color?: string;
+  text?: string;
+  label?: string;
+  file?: { path?: string; basename?: string; name?: string } | null;
+  filePath?: string;
   isEditing?: boolean;
   unknownData?: Record<string, unknown>;
   nodeEl: HTMLElement;
   containerEl?: HTMLElement;
   contentEl?: HTMLElement;
+  placeholderEl?: HTMLElement;
   getData(): RawNode;
   setData(data: RawNode): void;
   setText?(text: string): void;
   startEditing?(): void;
   blur?(): void;
   setColor?(color: string): void;
+  getBBox?(): BBox;
+  resize?(size: Size): void;
   moveAndResize?(rect: Rect): void;
   render?(): void;
 }
@@ -88,6 +95,11 @@ export interface CanvasLike {
   nodes: Map<string, NodeLike>;
   edges: Map<string, EdgeLike>;
   selection: Set<NodeLike>;
+  x?: number;
+  y?: number;
+  zoom?: number;
+  scale?: number;
+  zoomBreakpoint?: number;
   tZoom?: number;
   tx?: number;
   ty?: number;
@@ -97,6 +109,11 @@ export interface CanvasLike {
   setData(data: CanvasData): void;
   importData(data: CanvasData, removeStale?: boolean): void;
   pushHistory?(data: CanvasData): void;
+  zoomToBbox?(bbox: BBox): void;
+  panIntoView?(bbox: BBox, margin?: number): void;
+  setViewport?(x: number, y: number, zoom: number): void;
+  markViewportChanged?(): void;
+  getContainingNodes?(bbox: BBox): NodeLike[];
   createTextNode(opts: {
     pos: Point;
     size?: Size;
@@ -156,6 +173,35 @@ export function zoomOf(canvas: CanvasLike): number {
   return typeof z === "number" && z > 0 ? z : 1;
 }
 
+export function scaleOf(canvas: CanvasLike): number {
+  if (typeof canvas.scale === "number" && Number.isFinite(canvas.scale) && canvas.scale > 0) {
+    return canvas.scale;
+  }
+  const z = canvas.zoom ?? canvas.tZoom;
+  if (typeof z === "number" && Number.isFinite(z)) {
+    return Math.pow(2, z);
+  }
+  return 1;
+}
+
+export function focusNodeInViewport(canvas: CanvasLike, node: NodeLike): void {
+  const pad = Math.max(120, Math.min(node.width, node.height) * 0.6);
+  const bbox: BBox = {
+    minX: node.x - pad,
+    minY: node.y - pad,
+    maxX: node.x + node.width + pad,
+    maxY: node.y + node.height + pad,
+  };
+  if (typeof canvas.zoomToBbox === "function") {
+    canvas.zoomToBbox(bbox);
+    return;
+  }
+  canvas.tx = node.x + node.width / 2;
+  canvas.ty = node.y + node.height / 2;
+  canvas.markViewportChanged?.();
+  canvas.requestFrame();
+}
+
 export function isEditing(node: NodeLike): boolean {
   if (node.isEditing) return true;
   return !!node.nodeEl?.classList.contains("is-editing");
@@ -188,7 +234,7 @@ export function nodeFromEvent(canvas: CanvasLike, evt: Event | Element): NodeLik
 export function isInsideCanvasUi(el: Element | null): boolean {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 

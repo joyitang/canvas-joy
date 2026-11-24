@@ -407,24 +407,9 @@
 }
 
 /* ---------------------------------------------------------------- section
- * PRD SEC-02: solid #d8d8d8, different from the #eeeded canvas background;
- * the label shares the fill so nothing shows through.
+ * Sections align with Obsidian's native translucent group styling so G / ⌘G
+ * groups and native groups look and nest identically.
  */
-
-.canvas-wrapper .canvas-node.jce-section:not(.jce-section-tinted) > .canvas-node-container {
-  background: var(--jce-section-fill) !important;
-  background-color: var(--jce-section-fill) !important;
-  border: 1px solid rgba(0, 0, 0, 0.1) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-}
-
-.canvas-wrapper .canvas-node.jce-section:not(.jce-section-tinted) > .canvas-group-label {
-  background: var(--jce-section-fill) !important;
-  background-color: var(--jce-section-fill) !important;
-  border-radius: 6px;
-  padding: 1px 6px;
-}
 
 /* --------------------------------------------------------------- overlay */
 
@@ -497,4 +482,467 @@
   border-radius: 50%;
   background: var(--jce-line);
   box-shadow: 0 0 0 2px var(--background-primary);
+}
+
+/* ----------------------------------------------------- v1.4.0 host anchor */
+
+.workspace-leaf-content[data-type="canvas"] .view-content {
+  position: relative;
+}
+
+.jce-toolbar .jce-tool svg.svg-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* ------------------------------------------------------- in-canvas search */
+
+.jce-search-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 42;
+  width: min(440px, calc(100% - 140px));
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-l, 0 8px 28px rgba(0, 0, 0, 0.14));
+  overflow: hidden;
+  color: var(--text-normal);
+}
+
+.jce-search-bar[hidden] {
+  display: none !important;
+}
+
+.jce-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+}
+
+.jce-search-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.jce-search-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.jce-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: 13.5px;
+  color: var(--text-normal);
+  padding: 4px 2px;
+}
+
+.jce-search-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.jce-search-nav,
+.jce-search-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.jce-search-nav:hover,
+.jce-search-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.jce-search-nav svg,
+.jce-search-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.jce-search-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.jce-search-list[hidden] {
+  display: none !important;
+}
+
+.jce-search-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.jce-search-item:hover,
+.jce-search-item.is-active {
+  background: var(--background-modifier-hover);
+}
+
+.jce-search-item.is-active {
+  box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+.jce-search-badge {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.jce-search-item-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.jce-search-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jce-search-item-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-wrapper .canvas-node.jce-search-hit > .canvas-node-container {
+  box-shadow: 0 0 0 2px var(--interactive-accent) !important;
+}
+
+.canvas-wrapper .canvas-node.jce-search-current > .canvas-node-container {
+  box-shadow:
+    0 0 0 3px var(--interactive-accent),
+    0 8px 24px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* ------------------------------------------------------------- focus mode */
+
+.canvas-wrapper.jce-focus-mode .canvas-node:not(.jce-focused-item) {
+  opacity: 0.15 !important;
+  transition: opacity 140ms ease;
+}
+
+.canvas-wrapper.jce-focus-mode .canvas-node.jce-focused-item {
+  opacity: 1 !important;
+  transition: opacity 140ms ease;
+}
+
+.canvas-wrapper .jce-focus-dim {
+  opacity: 0.15 !important;
+  transition: opacity 140ms ease;
+}
+
+.jce-focus-pill {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 38;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s, 0 4px 16px rgba(0, 0, 0, 0.12));
+  font-size: 12.5px;
+  color: var(--text-normal);
+}
+
+.jce-focus-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.jce-focus-label {
+  white-space: nowrap;
+}
+
+.jce-focus-exit {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.jce-focus-exit:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ------------------------------------------------- card & section collapse */
+
+.canvas-wrapper .canvas-node .jce-sec-hidden,
+.canvas-wrapper .canvas-node.jce-sec-hidden,
+.canvas-wrapper .jce-sec-hidden {
+  display: none !important;
+}
+
+.canvas-wrapper .canvas-node > .canvas-node-container > .jce-fold-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--background-primary) 82%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  box-shadow: none;
+}
+
+.canvas-wrapper .canvas-node.canvas-node-group > .canvas-node-container > .jce-fold-btn {
+  opacity: 0.65;
+}
+
+.canvas-wrapper .canvas-node > .canvas-node-container > .jce-fold-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.canvas-wrapper .canvas-node:hover > .canvas-node-container > .jce-fold-btn,
+.canvas-wrapper .canvas-node.is-focused > .canvas-node-container > .jce-fold-btn,
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-fold-btn {
+  opacity: 1;
+}
+
+.canvas-wrapper .canvas-node > .canvas-node-container > .jce-fold-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container {
+  padding: 0 38px 0 14px !important;
+  overflow: hidden !important;
+  pointer-events: auto;
+}
+
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-content,
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-placeholder,
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-lod-overlay {
+  display: none !important;
+}
+
+.canvas-wrapper .canvas-node.jce-section-folded > .canvas-group-label {
+  display: none !important;
+}
+
+.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-fold-btn {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.jce-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  color: var(--text-normal);
+  user-select: none;
+}
+
+.jce-collapsed-bar[hidden] {
+  display: none !important;
+}
+
+.jce-collapsed-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jce-collapsed-meta {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-normal) 8%, transparent);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.jce-collapsed-meta[hidden] {
+  display: none !important;
+}
+
+/* ----------------------------------------------------------- zoom-out LOD */
+
+.jce-lod-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  pointer-events: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  color: var(--text-normal);
+}
+
+.jce-lod-overlay.is-compact {
+  justify-content: center;
+  padding: 8px 14px;
+  gap: 4px;
+}
+
+.jce-lod-overlay[hidden] {
+  display: none !important;
+}
+
+.jce-lod-title {
+  flex: 0 0 auto;
+  font-size: clamp(18px, calc(13.5px / max(var(--jce-scale, 1), 0.14)), 58px);
+  font-weight: 650;
+  line-height: 1.22;
+  color: var(--text-normal);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.jce-lod-overlay.is-compact .jce-lod-title {
+  font-size: clamp(16px, calc(12px / max(var(--jce-scale, 1), 0.16)), 44px);
+  -webkit-line-clamp: 2;
+}
+
+.jce-lod-summary {
+  flex: 0 1 auto;
+  min-height: 0;
+  font-size: clamp(13px, calc(10px / max(var(--jce-scale, 1), 0.18)), 30px);
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.jce-lod-summary[hidden] {
+  display: none !important;
+}
+
+.jce-lod-badge {
+  flex: 0 0 auto;
+  margin-top: auto;
+  align-self: flex-start;
+  font-size: clamp(12px, calc(9.5px / max(var(--jce-scale, 1), 0.18)), 26px);
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.jce-lod-badge[hidden] {
+  display: none !important;
+}
+
+/* Hide blank icon placeholders only when zoomed far out (native mod-zoomed-out or <= 32%). */
+.canvas-wrapper.jce-zoom-far
+  .canvas-node:not(.jce-mindmap):not(.jce-section):not(.canvas-node-group):not(.jce-card-folded):not(.is-editing)
+  > .canvas-node-container
+  > .canvas-node-content,
+.canvas-wrapper.jce-zoom-far
+  .canvas-node:not(.jce-mindmap):not(.jce-section):not(.canvas-node-group):not(.jce-card-folded):not(.is-editing)
+  > .canvas-node-container
+  > .canvas-node-placeholder {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Keep section titles prominent and visible below Obsidian's zoom breakpoint. */
+.canvas-wrapper.jce-zoom-far .canvas-node-group:not(.jce-section-folded) > .canvas-group-label {
+  display: block !important;
+  font-size: clamp(16px, calc(13px / max(var(--jce-scale, 1), 0.15)), 54px) !important;
+  font-weight: 650 !important;
+  line-height: 1.2 !important;
+  padding: 4px 10px !important;
+}
+
+.canvas-wrapper.jce-zoom-far .canvas-node.jce-card-folded .jce-collapsed-title {
+  font-size: clamp(15px, calc(12px / max(var(--jce-scale, 1), 0.18)), 40px);
 }

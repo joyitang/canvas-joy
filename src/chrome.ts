@@ -13,8 +13,17 @@
  */
 
 import type { Plugin } from "obsidian";
-import { CanvasLike, NodeLike, allNodes, isEditing } from "./bridge";
-import { cardBgOf, hiddenByFold, kindOf, mindmapEdges, mindmapNodeIds } from "./model";
+import { CanvasLike, NodeLike, allNodes, isEditing, scaleOf } from "./bridge";
+import {
+  cardBgOf,
+  foldKidsOf,
+  hiddenByFold,
+  isCardFolded,
+  kindOf,
+  mindmapEdges,
+  mindmapNodeIds,
+  nodeTextContent,
+} from "./model";
 import { drawOverlay } from "./overlay";
 
 const KIND_CLASSES = ["jce-note", "jce-text", "jce-mindmap", "jce-section"];
@@ -141,8 +150,11 @@ export class Chrome {
   }
 
   private signatureOf(canvas: CanvasLike): string {
-    const parts: string[] = [];
+    const parts: string[] = [
+      `z${Math.round(scaleOf(canvas) * 100)}${canvas.wrapperEl.classList.contains("mod-zoomed-out") ? "o" : ""}`,
+    ];
     for (const node of allNodes(canvas)) {
+      const text = nodeTextContent(node);
       parts.push(
         [
           node.id,
@@ -155,6 +167,8 @@ export class Chrome {
           cardBgOf(node),
           isEditing(node) ? "e" : "",
           node.getData().jceFold === true ? "f" : "",
+          isCardFolded(node) ? `cf${foldKidsOf(node).length}` : "",
+          `${text.length}:${text.slice(0, 48)}`,
         ].join(":")
       );
     }

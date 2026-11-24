@@ -15,6 +15,9 @@ export const TAG = "jce";
 export const ROOT = "jceRoot";
 export const LAYOUT = "jceLayout";
 export const FOLD = "jceFold";
+export const CARD_FOLD = "jceCardFold";
+export const FOLD_HEIGHT = "jceFoldH";
+export const FOLD_KIDS = "jceFoldKids";
 /** Card background chosen from the object menu (note cards only). */
 export const CARD_BG = "jceBg";
 
@@ -183,4 +186,151 @@ export function mindmapNodeIds(canvas: CanvasLike): Set<string> {
     if (isMindmap(node)) ids.add(node.id);
   }
   return ids;
+}
+
+export function isGroupNode(node: NodeLike): boolean {
+  return dataOf(node).type === "group" || kindOf(node) === "section";
+}
+
+export function isCollapsible(node: NodeLike): boolean {
+  return !isMindmap(node);
+}
+
+export function isCardFolded(node: NodeLike): boolean {
+  return dataOf(node)[CARD_FOLD] === true;
+}
+
+export function foldHeightOf(node: NodeLike): number | undefined {
+  const h = dataOf(node)[FOLD_HEIGHT];
+  return typeof h === "number" && Number.isFinite(h) && h > 0 ? h : undefined;
+}
+
+export function foldKidsOf(node: NodeLike): string[] {
+  const kids = dataOf(node)[FOLD_KIDS];
+  if (!Array.isArray(kids)) return [];
+  return kids.filter((id): id is string => typeof id === "string");
+}
+
+/** Nodes contained inside a section/group (or stored in jceFoldKids when folded). */
+export function nodesInsideGroup(canvas: CanvasLike, group: NodeLike): NodeLike[] {
+  if (isCardFolded(group)) {
+    const out: NodeLike[] = [];
+    for (const id of foldKidsOf(group)) {
+      const n = canvas.nodes.get(id);
+      if (n && n.id !== group.id) out.push(n);
+    }
+    return out;
+  }
+  const gx1 = group.x;
+  const gy1 = group.y;
+  const gx2 = group.x + group.width;
+  const gy2 = group.y + group.height;
+  const out: NodeLike[] = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.id === group.id) continue;
+    if (isGroupNode(node)) {
+      // Only include nested groups strictly smaller than this group
+      if (node.width >= group.width && node.height >= group.height) continue;
+    }
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    if (cx >= gx1 && cx <= gx2 && cy >= gy1 && cy <= gy2) {
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+export function stripMarkdownLine(line: string): string {
+  let s = line.trim();
+  s = s.replace(/!\[\[[^\]]+\]\]/g, "");
+  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  s = s.replace(/^#{1,6}\s+/, "");
+  s = s.replace(/^[-*+]\s+\[[ xX]\]\s*/, "");
+  s = s.replace(/^[-*+]\s+/, "");
+  s = s.replace(/^\d+\.\s+/, "");
+  s = s.replace(/^>\s+/, "");
+  s = s.replace(/<\/?span[^>]*>/gi, "");
+  s = s.replace(/`([^`]*)`/g, "$1");
+  s = s.replace(/==([^=]+)==/g, "$1");
+  s = s.replace(/==/g, "");
+  s = s.replace(/~~([^~]+)~~/g, "$1");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/__([^_]+)__/g, "$1");
+  s = s.replace(/\*([^*]+)\*/g, "$1");
+  s = s.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2");
+  s = s.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+export function nodeTextContent(node: NodeLike): string {
+  const data = dataOf(node);
+  if (typeof node.text === "string") return node.text;
+  if (typeof data.text === "string") return data.text;
+  if (typeof node.label === "string") return node.label;
+  if (typeof data.label === "string") return data.label;
+  if (node.file?.basename) return node.file.basename;
+  if (typeof data.file === "string") {
+    const base = data.file.split("/").pop() ?? data.file;
+    return base.replace(/\.md$/i, "");
+  }
+  if (typeof data.url === "string") return data.url;
+  return "";
+}
+
+export function nodeTitleOf(node: NodeLike): string {
+  const data = dataOf(node);
+  if (isGroupNode(node)) {
+    const lbl = (typeof node.label === "string" ? node.label : undefined) ??
+      (typeof data.label === "string" ? data.label : "");
+    return lbl.trim() || "Section";
+  }
+  if (data.type === "file") {
+    const name = node.file?.basename ??
+      (typeof data.file === "string" ? (data.file.split("/").pop() ?? data.file).replace(/\.md$/i, "") : "");
+    return name.trim() || "未命名文件";
+  }
+  const raw = nodeTextContent(node);
+  for (const line of raw.split(/\r?\n/)) {
+    const clean = stripMarkdownLine(line);
+    if (clean) return clean;
+  }
+  return kindOf(node) === "text" ? "Text" : "未命名卡片";
+}
+
+export function nodeSummaryOf(node: NodeLike): string {
+  const data = dataOf(node);
+  if (isGroupNode(node)) return "";
+  if (data.type === "file") {
+    return typeof data.file === "string" ? data.file : "";
+  }
+  const raw = nodeTextContent(node);
+  const lines: string[] = [];
+  let skippedTitle = false;
+  for (const line of raw.split(/\r?\n/)) {
+    const clean = stripMarkdownLine(line);
+    if (!clean) continue;
+    if (!skippedTitle) {
+      skippedTitle = true;
+      continue;
+    }
+    lines.push(clean);
+    if (lines.join(" ").length >= 120 || lines.length >= 3) break;
+  }
+  const joined = lines.join(" · ");
+  return joined.length > 120 ? joined.slice(0, 119) + "…" : joined;
+}
+
+export function todoProgressOf(text: string): { done: number; total: number } | null {
+  if (!text) return null;
+  let total = 0;
+  let done = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*[-*+]\s+\[([ xX])\]/);
+    if (!m) continue;
+    total++;
+    if (m[1].toLowerCase() === "x") done++;
+  }
+  return total > 0 ? { done, total } : null;
 }

@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => CanvasEnhancePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/bridge.ts
 var edgeCtors = /* @__PURE__ */ new WeakMap();
@@ -35,6 +35,36 @@ function uid() {
 }
 function allNodes(canvas) {
   return Array.from(canvas.nodes.values());
+}
+function allEdges(canvas) {
+  return Array.from(canvas.edges.values());
+}
+function scaleOf(canvas) {
+  if (typeof canvas.scale === "number" && Number.isFinite(canvas.scale) && canvas.scale > 0) {
+    return canvas.scale;
+  }
+  const z = canvas.zoom ?? canvas.tZoom;
+  if (typeof z === "number" && Number.isFinite(z)) {
+    return Math.pow(2, z);
+  }
+  return 1;
+}
+function focusNodeInViewport(canvas, node) {
+  const pad = Math.max(120, Math.min(node.width, node.height) * 0.6);
+  const bbox = {
+    minX: node.x - pad,
+    minY: node.y - pad,
+    maxX: node.x + node.width + pad,
+    maxY: node.y + node.height + pad
+  };
+  if (typeof canvas.zoomToBbox === "function") {
+    canvas.zoomToBbox(bbox);
+    return;
+  }
+  canvas.tx = node.x + node.width / 2;
+  canvas.ty = node.y + node.height / 2;
+  canvas.markViewportChanged?.();
+  canvas.requestFrame();
 }
 function isEditing(node) {
   if (node.isEditing) return true;
@@ -63,7 +93,7 @@ function nodeFromEvent(canvas, evt) {
 function isInsideCanvasUi(el) {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 function commit(canvas) {
@@ -146,6 +176,9 @@ var TAG = "jce";
 var ROOT = "jceRoot";
 var LAYOUT = "jceLayout";
 var FOLD = "jceFold";
+var CARD_FOLD = "jceCardFold";
+var FOLD_HEIGHT = "jceFoldH";
+var FOLD_KIDS = "jceFoldKids";
 var CARD_BG = "jceBg";
 var CARD_BG_PALETTE = [
   { value: "", zh: "\u9ED8\u8BA4", en: "Default" },
@@ -275,6 +308,116 @@ function mindmapNodeIds(canvas) {
   }
   return ids;
 }
+function isGroupNode(node) {
+  return dataOf(node).type === "group" || kindOf(node) === "section";
+}
+function isCollapsible(node) {
+  return !isMindmap(node);
+}
+function isCardFolded(node) {
+  return dataOf(node)[CARD_FOLD] === true;
+}
+function foldHeightOf(node) {
+  const h = dataOf(node)[FOLD_HEIGHT];
+  return typeof h === "number" && Number.isFinite(h) && h > 0 ? h : void 0;
+}
+function foldKidsOf(node) {
+  const kids = dataOf(node)[FOLD_KIDS];
+  if (!Array.isArray(kids)) return [];
+  return kids.filter((id) => typeof id === "string");
+}
+function nodesInsideGroup(canvas, group) {
+  if (isCardFolded(group)) {
+    const out2 = [];
+    for (const id of foldKidsOf(group)) {
+      const n = canvas.nodes.get(id);
+      if (n && n.id !== group.id) out2.push(n);
+    }
+    return out2;
+  }
+  const gx1 = group.x;
+  const gy1 = group.y;
+  const gx2 = group.x + group.width;
+  const gy2 = group.y + group.height;
+  const out = [];
+  for (const node of canvas.nodes.values()) {
+    if (node.id === group.id) continue;
+    if (isGroupNode(node)) {
+      if (node.width >= group.width && node.height >= group.height) continue;
+    }
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    if (cx >= gx1 && cx <= gx2 && cy >= gy1 && cy <= gy2) {
+      out.push(node);
+    }
+  }
+  return out;
+}
+function stripMarkdownLine(line) {
+  let s = line.trim();
+  s = s.replace(/!\[\[[^\]]+\]\]/g, "");
+  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  s = s.replace(/^#{1,6}\s+/, "");
+  s = s.replace(/^[-*+]\s+\[[ xX]\]\s*/, "");
+  s = s.replace(/^[-*+]\s+/, "");
+  s = s.replace(/^\d+\.\s+/, "");
+  s = s.replace(/^>\s+/, "");
+  s = s.replace(/<\/?span[^>]*>/gi, "");
+  s = s.replace(/`([^`]*)`/g, "$1");
+  s = s.replace(/==([^=]+)==/g, "$1");
+  s = s.replace(/==/g, "");
+  s = s.replace(/~~([^~]+)~~/g, "$1");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/__([^_]+)__/g, "$1");
+  s = s.replace(/\*([^*]+)\*/g, "$1");
+  s = s.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2");
+  s = s.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  return s.replace(/\s+/g, " ").trim();
+}
+function nodeTextContent(node) {
+  const data = dataOf(node);
+  if (typeof node.text === "string") return node.text;
+  if (typeof data.text === "string") return data.text;
+  if (typeof node.label === "string") return node.label;
+  if (typeof data.label === "string") return data.label;
+  if (node.file?.basename) return node.file.basename;
+  if (typeof data.file === "string") {
+    const base = data.file.split("/").pop() ?? data.file;
+    return base.replace(/\.md$/i, "");
+  }
+  if (typeof data.url === "string") return data.url;
+  return "";
+}
+function nodeTitleOf(node) {
+  const data = dataOf(node);
+  if (isGroupNode(node)) {
+    const lbl = (typeof node.label === "string" ? node.label : void 0) ?? (typeof data.label === "string" ? data.label : "");
+    return lbl.trim() || "Section";
+  }
+  if (data.type === "file") {
+    const name = node.file?.basename ?? (typeof data.file === "string" ? (data.file.split("/").pop() ?? data.file).replace(/\.md$/i, "") : "");
+    return name.trim() || "\u672A\u547D\u540D\u6587\u4EF6";
+  }
+  const raw = nodeTextContent(node);
+  for (const line of raw.split(/\r?\n/)) {
+    const clean = stripMarkdownLine(line);
+    if (clean) return clean;
+  }
+  return kindOf(node) === "text" ? "Text" : "\u672A\u547D\u540D\u5361\u7247";
+}
+function todoProgressOf(text) {
+  if (!text) return null;
+  let total = 0;
+  let done = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*[-*+]\s+\[([ xX])\]/);
+    if (!m) continue;
+    total++;
+    if (m[1].toLowerCase() === "x") done++;
+  }
+  return total > 0 ? { done, total } : null;
+}
 
 // src/layout.ts
 var CHILD_GAP = 56;
@@ -290,6 +433,9 @@ var KIND_SIZE = {
   mindmap: MM_SIZE,
   section: { width: 560, height: 360 }
 };
+function rectOf(node) {
+  return { x: node.x, y: node.y, width: node.width, height: node.height };
+}
 function right(r) {
   return r.x + r.width;
 }
@@ -301,6 +447,20 @@ function centerX(r) {
 }
 function centerY(r) {
   return r.y + r.height / 2;
+}
+function unionRect(rects) {
+  if (!rects.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of rects) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, right(r));
+    maxY = Math.max(maxY, bottom(r));
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 function inheritedSize(parent, siblings) {
   const source = siblings.length ? siblings[siblings.length - 1] : parent;
@@ -602,8 +762,11 @@ var Chrome = class {
     this.apply(canvas);
   }
   signatureOf(canvas) {
-    const parts = [];
+    const parts = [
+      `z${Math.round(scaleOf(canvas) * 100)}${canvas.wrapperEl.classList.contains("mod-zoomed-out") ? "o" : ""}`
+    ];
     for (const node of allNodes(canvas)) {
+      const text = nodeTextContent(node);
       parts.push(
         [
           node.id,
@@ -615,7 +778,9 @@ var Chrome = class {
           node.color ?? "",
           cardBgOf(node),
           isEditing(node) ? "e" : "",
-          node.getData().jceFold === true ? "f" : ""
+          node.getData().jceFold === true ? "f" : "",
+          isCardFolded(node) ? `cf${foldKidsOf(node).length}` : "",
+          `${text.length}:${text.slice(0, 48)}`
         ].join(":")
       );
     }
@@ -696,6 +861,237 @@ var Chrome = class {
   }
 };
 
+// src/collapse.ts
+var import_obsidian = require("obsidian");
+var COLLAPSED_CARD_H = 48;
+var COLLAPSED_GROUP_H = 44;
+var MIN_EXPANDED_H = 72;
+var MIN_GROUP_EXPANDED_H = 140;
+var CardCollapseController = class {
+  constructor() {
+    this.lastGroupPos = /* @__PURE__ */ new WeakMap();
+  }
+  toggle(canvas, nodeId) {
+    const node = canvas.nodes.get(nodeId);
+    if (!node || !isCollapsible(node)) return;
+    if (isCardFolded(node)) this.expand(canvas, node);
+    else this.collapse(canvas, node);
+  }
+  collapse(canvas, node) {
+    if (!isCollapsible(node) || isCardFolded(node)) return;
+    if (node.isEditing) node.blur?.();
+    const isGroup = isGroupNode(node);
+    const prevH = Math.max(
+      Math.round(node.height),
+      isGroup ? MIN_GROUP_EXPANDED_H : MIN_EXPANDED_H
+    );
+    const targetH = isGroup ? COLLAPSED_GROUP_H : COLLAPSED_CARD_H;
+    const patch = {
+      ...node.getData(),
+      height: targetH,
+      [CARD_FOLD]: true,
+      [FOLD_HEIGHT]: prevH
+    };
+    if (isGroup) {
+      const kids = nodesInsideGroup(canvas, node).map((k) => k.id);
+      patch[FOLD_KIDS] = kids;
+      this.lastGroupPos.set(node, { x: node.x, y: node.y });
+    }
+    node.setData(patch);
+    setNodeRect(node, { x: node.x, y: node.y, width: node.width, height: targetH });
+    commit(canvas);
+    this.sync(canvas);
+  }
+  expand(canvas, node) {
+    if (!isCardFolded(node)) return;
+    const isGroup = isGroupNode(node);
+    if (isGroup) this.translateFoldedChildren(canvas, node);
+    const fallbackH = isGroup ? KIND_SIZE.section.height : kindOf(node) === "text" ? KIND_SIZE.text.height : KIND_SIZE.note.height;
+    const restoredH = Math.max(
+      foldHeightOf(node) ?? fallbackH,
+      isGroup ? MIN_GROUP_EXPANDED_H : MIN_EXPANDED_H
+    );
+    const next = { ...node.getData(), height: restoredH };
+    delete next[CARD_FOLD];
+    delete next[FOLD_HEIGHT];
+    delete next[FOLD_KIDS];
+    node.setData(next);
+    setNodeRect(node, { x: node.x, y: node.y, width: node.width, height: restoredH });
+    this.lastGroupPos.delete(node);
+    commit(canvas);
+    this.sync(canvas);
+  }
+  /** Expand any folded section that currently hides `nodeId` (e.g. from Search). */
+  expandContainingGroup(canvas, nodeId) {
+    for (const node of allNodes(canvas)) {
+      if (!isGroupNode(node) || !isCardFolded(node)) continue;
+      if (foldKidsOf(node).includes(nodeId)) {
+        this.expand(canvas, node);
+      }
+    }
+  }
+  sync(canvas) {
+    const nodes = allNodes(canvas);
+    for (const node of nodes) {
+      if (!isCollapsible(node) || !isCardFolded(node)) continue;
+      const isGroup = isGroupNode(node);
+      const maxFoldH = (isGroup ? COLLAPSED_GROUP_H : COLLAPSED_CARD_H) + 20;
+      if (node.height > maxFoldH) {
+        const next = { ...node.getData() };
+        delete next[CARD_FOLD];
+        delete next[FOLD_HEIGHT];
+        delete next[FOLD_KIDS];
+        node.setData(next);
+        this.lastGroupPos.delete(node);
+        canvas.requestSave();
+        continue;
+      }
+      if (isGroup) {
+        this.translateFoldedChildren(canvas, node);
+      }
+    }
+    const hiddenBySec = /* @__PURE__ */ new Set();
+    for (const node of nodes) {
+      if (!isGroupNode(node) || !isCardFolded(node)) continue;
+      for (const id of foldKidsOf(node)) {
+        if (id !== node.id) hiddenBySec.add(id);
+      }
+    }
+    for (const node of nodes) {
+      const hidden = hiddenBySec.has(node.id);
+      node.nodeEl.classList.toggle("jce-sec-hidden", hidden);
+      if (!isCollapsible(node)) {
+        node.nodeEl.classList.remove("jce-card-folded", "jce-section-folded");
+        node.nodeEl.querySelector(".jce-fold-btn")?.remove();
+        node.nodeEl.querySelector(".jce-collapsed-bar")?.remove();
+        continue;
+      }
+      const folded = isCardFolded(node);
+      const isGroup = isGroupNode(node);
+      node.nodeEl.classList.toggle("jce-card-folded", folded);
+      node.nodeEl.classList.toggle("jce-section-folded", folded && isGroup);
+      const host = node.containerEl;
+      if (!host) continue;
+      this.syncFoldButton(canvas, node, host, folded);
+      this.syncCollapsedBar(canvas, node, host, folded, isGroup);
+    }
+    for (const edge of allEdges(canvas)) {
+      const hide = hiddenBySec.has(edge.from.node.id) || hiddenBySec.has(edge.to.node.id);
+      edge.lineGroupEl?.classList.toggle("jce-sec-hidden", hide);
+      edge.lineEndGroupEl?.classList.toggle("jce-sec-hidden", hide);
+    }
+  }
+  detach(canvas) {
+    for (const node of allNodes(canvas)) {
+      node.nodeEl.classList.remove("jce-card-folded", "jce-section-folded", "jce-sec-hidden");
+      node.nodeEl.querySelector(".jce-fold-btn")?.remove();
+      node.nodeEl.querySelector(".jce-collapsed-bar")?.remove();
+    }
+    for (const edge of allEdges(canvas)) {
+      edge.lineGroupEl?.classList.remove("jce-sec-hidden");
+      edge.lineEndGroupEl?.classList.remove("jce-sec-hidden");
+    }
+  }
+  translateFoldedChildren(canvas, node) {
+    const prev = this.lastGroupPos.get(node);
+    if (!prev) {
+      this.lastGroupPos.set(node, { x: node.x, y: node.y });
+      return;
+    }
+    const dx = node.x - prev.x;
+    const dy = node.y - prev.y;
+    if (Math.abs(dx) <= 0.5 && Math.abs(dy) <= 0.5) return;
+    for (const kidId of foldKidsOf(node)) {
+      const kid = canvas.nodes.get(kidId);
+      if (!kid) continue;
+      const nx = Math.round(kid.x + dx);
+      const ny = Math.round(kid.y + dy);
+      kid.setData({ ...kid.getData(), x: nx, y: ny });
+      setNodeRect(kid, { x: nx, y: ny, width: kid.width, height: kid.height });
+    }
+    this.lastGroupPos.set(node, { x: node.x, y: node.y });
+    canvas.requestSave();
+  }
+  syncFoldButton(canvas, node, host, folded) {
+    let btn = host.querySelector(":scope > .jce-fold-btn");
+    if (!btn) {
+      btn = host.createEl("button", {
+        type: "button",
+        cls: "jce-fold-btn"
+      });
+      btn.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+      });
+      btn.addEventListener("dblclick", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+      });
+      btn.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.toggle(canvas, node.id);
+      });
+    }
+    const nextState = folded ? "1" : "0";
+    if (btn.dataset.folded !== nextState) {
+      btn.dataset.folded = nextState;
+      btn.empty();
+      (0, import_obsidian.setIcon)(btn, folded ? "chevrons-down-up" : "chevrons-up-down");
+      const tip = folded ? "\u5C55\u5F00 / Expand" : "\u6298\u53E0 / Collapse";
+      btn.title = tip;
+      btn.setAttribute("aria-label", tip);
+    }
+  }
+  syncCollapsedBar(canvas, node, host, folded, isGroup) {
+    let bar = host.querySelector(":scope > .jce-collapsed-bar");
+    if (!folded) {
+      if (bar) bar.hidden = true;
+      return;
+    }
+    if (!bar) {
+      bar = host.createDiv({ cls: "jce-collapsed-bar" });
+      bar.createSpan({ cls: "jce-collapsed-title" });
+      bar.createSpan({ cls: "jce-collapsed-meta" });
+      bar.addEventListener("dblclick", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.expand(canvas, node);
+      });
+    }
+    bar.hidden = false;
+    const title = nodeTitleOf(node);
+    const meta = isGroup ? `${foldKidsOf(node).length} \u5F20\u5361` : (() => {
+      const p = todoProgressOf(nodeTextContent(node));
+      return p ? `${p.done}/${p.total}` : "";
+    })();
+    const sig = `${title}
+${meta}`;
+    if (bar.dataset.sig !== sig) {
+      bar.dataset.sig = sig;
+      const titleEl = bar.querySelector(".jce-collapsed-title");
+      const metaEl = bar.querySelector(".jce-collapsed-meta");
+      if (titleEl) titleEl.textContent = title;
+      if (metaEl) {
+        metaEl.textContent = meta;
+        metaEl.hidden = !meta;
+      }
+    }
+  }
+};
+function setNodeRect(node, rect) {
+  if (typeof node.moveAndResize === "function") {
+    node.moveAndResize(rect);
+  } else {
+    node.x = rect.x;
+    node.y = rect.y;
+    node.width = rect.width;
+    node.height = rect.height;
+    node.resize?.({ width: rect.width, height: rect.height });
+  }
+  node.render?.();
+}
+
 // src/connect.ts
 var ConnectTool = class {
   constructor(plugin) {
@@ -753,9 +1149,132 @@ var ConnectTool = class {
   }
 };
 
+// src/focus.ts
+var FocusController = class {
+  constructor() {
+    this.states = /* @__PURE__ */ new Map();
+  }
+  isActive(canvas) {
+    return this.states.has(canvas);
+  }
+  toggle(canvas) {
+    if (this.isActive(canvas)) {
+      this.exit(canvas);
+      return false;
+    }
+    const sel = selectedNodes(canvas);
+    if (!sel.length) return false;
+    this.enter(canvas, sel);
+    return true;
+  }
+  enter(canvas, targets) {
+    if (!targets.length) {
+      this.exit(canvas);
+      return;
+    }
+    const focusedIds = computeFocusIds(canvas, targets);
+    const pillEl = this.ensurePill(canvas);
+    const state = {
+      focusedIds,
+      selectionSig: sigOf(targets),
+      pillEl
+    };
+    this.states.set(canvas, state);
+    canvas.wrapperEl.classList.add("jce-focus-mode");
+    this.applyClasses(canvas, focusedIds);
+  }
+  exit(canvas) {
+    const state = this.states.get(canvas);
+    if (!state) return;
+    state.pillEl.remove();
+    this.states.delete(canvas);
+    canvas.wrapperEl.classList.remove("jce-focus-mode");
+    for (const node of allNodes(canvas)) {
+      node.nodeEl?.classList.remove("jce-focused-item");
+    }
+    for (const edge of allEdges(canvas)) {
+      edge.lineGroupEl?.classList.remove("jce-focus-dim");
+      edge.lineEndGroupEl?.classList.remove("jce-focus-dim");
+    }
+  }
+  /** Called after selection changes or DOM refreshes. */
+  sync(canvas) {
+    const state = this.states.get(canvas);
+    if (!state) return;
+    const sel = selectedNodes(canvas);
+    if (sel.length > 0) {
+      const sig = sigOf(sel);
+      if (sig !== state.selectionSig) {
+        state.selectionSig = sig;
+        state.focusedIds = computeFocusIds(canvas, sel);
+      }
+    }
+    canvas.wrapperEl.classList.add("jce-focus-mode");
+    this.applyClasses(canvas, state.focusedIds);
+  }
+  /** Clicking blank space while in focus mode exits cleanly. */
+  onCanvasBlankClick(canvas) {
+    if (!this.isActive(canvas)) return;
+    this.exit(canvas);
+  }
+  detach(canvas) {
+    this.exit(canvas);
+  }
+  destroy() {
+    for (const canvas of Array.from(this.states.keys())) {
+      this.exit(canvas);
+    }
+  }
+  applyClasses(canvas, focusedIds) {
+    for (const node of allNodes(canvas)) {
+      node.nodeEl?.classList.toggle("jce-focused-item", focusedIds.has(node.id));
+    }
+    for (const edge of allEdges(canvas)) {
+      const keep = focusedIds.has(edge.from.node.id) && focusedIds.has(edge.to.node.id);
+      edge.lineGroupEl?.classList.toggle("jce-focus-dim", !keep);
+      edge.lineEndGroupEl?.classList.toggle("jce-focus-dim", !keep);
+    }
+  }
+  ensurePill(canvas) {
+    const existing = this.states.get(canvas)?.pillEl;
+    if (existing && existing.isConnected) return existing;
+    const host = canvas.wrapperEl.closest(".view-content") ?? canvas.wrapperEl;
+    const pill = host.createDiv({ cls: "jce-focus-pill" });
+    pill.createSpan({ cls: "jce-focus-dot" });
+    pill.createSpan({ cls: "jce-focus-label", text: "\u805A\u7126\u6A21\u5F0F \xB7 \u70B9\u51FB\u7A7A\u767D\u6216\u6309 Esc \u9000\u51FA" });
+    const btn = pill.createEl("button", {
+      type: "button",
+      cls: "jce-focus-exit",
+      text: "\u9000\u51FA"
+    });
+    btn.addEventListener("pointerdown", (evt) => evt.stopPropagation());
+    btn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.exit(canvas);
+    });
+    return pill;
+  }
+};
+function computeFocusIds(canvas, targets) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const node of targets) {
+    ids.add(node.id);
+    if (isGroupNode(node)) {
+      for (const child of nodesInsideGroup(canvas, node)) {
+        ids.add(child.id);
+      }
+    }
+  }
+  return ids;
+}
+function sigOf(nodes) {
+  return nodes.map((n) => n.id).sort().join(",");
+}
+
 // src/format.ts
 var import_view = require("@codemirror/view");
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 var BUTTONS = [
   { id: "bold", glyph: "B", label: "\u7C97\u4F53 / Bold  \u2318B", group: 0 },
   { id: "italic", glyph: "I", label: "\u659C\u4F53 / Italic  \u2318I", group: 0 },
@@ -818,7 +1337,7 @@ var FormatBar = class {
       el.setAttribute("aria-label", btn.label);
       if (btn.id === "bg") {
         el.classList.add("jce-fmt-icon");
-        (0, import_obsidian.setIcon)(el, "paint-bucket");
+        (0, import_obsidian2.setIcon)(el, "paint-bucket");
       } else {
         const glyph = document.createElement("span");
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
@@ -1207,6 +1726,9 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// src/toolbar.ts
+var import_obsidian3 = require("obsidian");
+
 // src/copy.ts
 var TOOLS = {
   select: { id: "select", zh: "\u9009\u62E9", en: "Select", key: "V" },
@@ -1217,13 +1739,19 @@ var TOOLS = {
   mindmap: { id: "mindmap", zh: "\u601D\u7EF4\u5BFC\u56FE", en: "Mindmap", key: "M" },
   section: { id: "section", zh: "\u5206\u533A", en: "Section", key: "G" }
 };
+var SEARCH_TOOL = { id: "search", zh: "\u641C\u7D22", en: "Search", key: "\u2318F" };
 var MENU = {
   color: { zh: "\u989C\u8272", en: "Color" },
   cardBg: { zh: "\u5361\u7247\u5E95\u8272", en: "Card background" },
   remove: { zh: "\u79FB\u9664", en: "Remove" },
   fold: { zh: "\u6298\u53E0", en: "Fold" },
   unfold: { zh: "\u5C55\u5F00", en: "Unfold" },
-  rotate: { zh: "\u65CB\u8F6C", en: "Rotate" }
+  rotate: { zh: "\u65CB\u8F6C", en: "Rotate" },
+  focus: { zh: "\u805A\u7126", en: "Focus" },
+  unfocus: { zh: "\u9000\u51FA\u805A\u7126", en: "Exit focus" },
+  groupSection: { zh: "\u6253\u5305\u8FDB\u5206\u533A", en: "Group into section" },
+  collapseCard: { zh: "\u6298\u53E0", en: "Collapse" },
+  expandCard: { zh: "\u5C55\u5F00", en: "Expand" }
 };
 var DEFAULTS = {
   noteCard: "Note Card",
@@ -1252,8 +1780,9 @@ var ICONS = {
 
 // src/toolbar.ts
 var CanvasToolbar = class {
-  constructor(onPick) {
+  constructor(onPick, onSearch) {
     this.onPick = onPick;
+    this.onSearch = onSearch;
     this.current = "select";
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
@@ -1282,13 +1811,35 @@ var CanvasToolbar = class {
       });
       this.el.appendChild(btn);
     });
+    this.el.createDiv({ cls: "jce-tool-sep" });
+    const searchBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-search",
+      attr: {
+        "data-tool": "search",
+        title: tooltip(SEARCH_TOOL),
+        "aria-label": tooltip(SEARCH_TOOL)
+      }
+    });
+    (0, import_obsidian3.setIcon)(searchBtn, "search");
+    searchBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    searchBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onSearch();
+    });
+    this.searchBtn = searchBtn;
     this.setActive("select");
   }
   setActive(id) {
     this.current = id;
     this.el.querySelectorAll(".jce-tool").forEach((btn) => {
+      if (btn === this.searchBtn) return;
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
+  }
+  setSearchActive(active) {
+    this.searchBtn.classList.toggle("is-active", active);
   }
   getActive() {
     return this.current;
@@ -1299,7 +1850,7 @@ var CanvasToolbar = class {
 };
 
 // src/menus.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 var PALETTE = [
   { id: "", label: "\u9ED8\u8BA4 / Default", swatch: "#d8d8d8" },
   { id: "1", label: "\u7EA2 / Red", swatch: "#fb464c" },
@@ -1362,7 +1913,7 @@ var ContextMenus = class {
     evt.stopPropagation();
     this.hide();
     const node = nodeFromWrapper(canvas, target);
-    const menu = new import_obsidian2.Menu();
+    const menu = new import_obsidian4.Menu();
     if (node) this.buildObjectMenu(menu, canvas, node);
     else this.buildBlankMenu(menu, canvas, canvas.posFromEvt(evt));
     this.open = menu;
@@ -1404,6 +1955,26 @@ var ContextMenus = class {
         }
       });
     }
+    if (isCollapsible(node)) {
+      const folded = isCardFolded(node);
+      const item = folded ? MENU.expandCard : MENU.collapseCard;
+      menu.addItem(
+        (row) => row.setTitle(menuLabel(item)).setIcon(folded ? "chevrons-down-up" : "chevrons-up-down").onClick(() => this.handlers.toggleCardFold(canvas, node.id))
+      );
+    }
+    const focused = this.handlers.isFocused(canvas);
+    menu.addItem(
+      (row) => row.setTitle(menuLabel(focused ? MENU.unfocus : MENU.focus)).setIcon("eye").onClick(() => {
+        if (focused) this.handlers.unfocus(canvas);
+        else this.handlers.focus(canvas, node);
+      })
+    );
+    const sel = selectedNodes(canvas);
+    if (sel.length > 1 || !isGroupNode(node)) {
+      menu.addItem(
+        (row) => row.setTitle(menuLabel(MENU.groupSection)).setIcon("frame").onClick(() => this.handlers.groupSelection(canvas, node))
+      );
+    }
     menu.addItem(
       (item) => item.setTitle(menuLabel(MENU.remove)).setIcon("trash").onClick(() => this.handlers.remove(canvas, node.id))
     );
@@ -1432,8 +2003,11 @@ function canvasFromWrapper(plugin, wrapper) {
     const view = leaf.view;
     if (view.canvas?.wrapperEl === wrapper) return view.canvas;
   }
-  const active = plugin.app.workspace.activeLeaf?.view;
-  return active?.canvas ?? null;
+  const active = plugin.app.workspace.getActiveViewOfType(import_obsidian4.FileView);
+  if (active && active.getViewType() === "canvas") {
+    return active.canvas ?? null;
+  }
+  return null;
 }
 function nodeFromWrapper(canvas, target) {
   const el = target?.closest?.(".canvas-node");
@@ -1753,6 +2327,247 @@ function activeCanvasView(plugin) {
   return view.canvas ?? null;
 }
 
+// src/search.ts
+var import_obsidian5 = require("obsidian");
+var CanvasSearchBar = class {
+  constructor(opts = {}) {
+    this.opts = opts;
+    this.states = /* @__PURE__ */ new Map();
+  }
+  isOpen(canvas) {
+    return this.states.get(canvas)?.open === true;
+  }
+  toggle(canvas) {
+    if (this.isOpen(canvas)) this.close(canvas);
+    else this.open(canvas);
+  }
+  open(canvas) {
+    const state = this.ensureState(canvas);
+    if (!state) return;
+    state.open = true;
+    state.barEl.hidden = false;
+    this.opts.onOpenChange?.(canvas, true);
+    this.runSearch(canvas, state, false);
+    window.requestAnimationFrame(() => {
+      state.inputEl.focus();
+      state.inputEl.select();
+    });
+  }
+  close(canvas) {
+    const state = this.states.get(canvas);
+    if (!state || !state.open) return;
+    state.open = false;
+    state.barEl.hidden = true;
+    this.clearHighlights(canvas);
+    this.opts.onOpenChange?.(canvas, false);
+  }
+  detach(canvas) {
+    const state = this.states.get(canvas);
+    if (!state) return;
+    this.clearHighlights(canvas);
+    state.barEl.remove();
+    this.states.delete(canvas);
+  }
+  destroy() {
+    for (const canvas of Array.from(this.states.keys())) {
+      this.detach(canvas);
+    }
+  }
+  ensureState(canvas) {
+    const existing = this.states.get(canvas);
+    if (existing && existing.barEl.isConnected) return existing;
+    existing?.barEl.remove();
+    const host = canvas.wrapperEl.closest(".view-content");
+    if (!host) return null;
+    const barEl = host.createDiv({ cls: "jce-search-bar" });
+    barEl.hidden = true;
+    const row = barEl.createDiv({ cls: "jce-search-row" });
+    const icon = row.createSpan({ cls: "jce-search-icon" });
+    (0, import_obsidian5.setIcon)(icon, "search");
+    const inputEl = row.createEl("input", {
+      type: "text",
+      cls: "jce-search-input",
+      attr: { placeholder: "\u641C\u7D22\u5F53\u524D\u753B\u5E03\u2026 / Search canvas" }
+    });
+    const countEl = row.createSpan({ cls: "jce-search-count", text: "0/0" });
+    const prevBtn = row.createEl("button", {
+      type: "button",
+      cls: "jce-search-nav",
+      attr: { title: "\u4E0A\u4E00\u4E2A / Previous (Shift+Enter)", "aria-label": "Previous" }
+    });
+    (0, import_obsidian5.setIcon)(prevBtn, "chevron-up");
+    const nextBtn = row.createEl("button", {
+      type: "button",
+      cls: "jce-search-nav",
+      attr: { title: "\u4E0B\u4E00\u4E2A / Next (Enter)", "aria-label": "Next" }
+    });
+    (0, import_obsidian5.setIcon)(nextBtn, "chevron-down");
+    const closeBtn = row.createEl("button", {
+      type: "button",
+      cls: "jce-search-close",
+      attr: { title: "\u5173\u95ED / Close (Esc)", "aria-label": "Close" }
+    });
+    (0, import_obsidian5.setIcon)(closeBtn, "x");
+    const listEl = barEl.createDiv({ cls: "jce-search-list" });
+    listEl.hidden = true;
+    const state = {
+      barEl,
+      inputEl,
+      countEl,
+      listEl,
+      hits: [],
+      index: -1,
+      open: false
+    };
+    barEl.addEventListener("pointerdown", (evt) => evt.stopPropagation());
+    inputEl.addEventListener("input", () => this.runSearch(canvas, state, true));
+    inputEl.addEventListener("keydown", (evt) => {
+      if (evt.isComposing) return;
+      if (evt.key === "Escape") {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.close(canvas);
+        canvas.wrapperEl.focus?.();
+        return;
+      }
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.step(canvas, state, evt.shiftKey ? -1 : 1);
+        return;
+      }
+      if (evt.key === "ArrowDown") {
+        evt.preventDefault();
+        this.step(canvas, state, 1);
+        return;
+      }
+      if (evt.key === "ArrowUp") {
+        evt.preventDefault();
+        this.step(canvas, state, -1);
+      }
+    });
+    prevBtn.addEventListener("click", () => this.step(canvas, state, -1));
+    nextBtn.addEventListener("click", () => this.step(canvas, state, 1));
+    closeBtn.addEventListener("click", () => this.close(canvas));
+    this.states.set(canvas, state);
+    return state;
+  }
+  runSearch(canvas, state, jumpToFirst) {
+    const query = state.inputEl.value.trim().toLowerCase();
+    this.clearHighlights(canvas);
+    if (!query) {
+      state.hits = [];
+      state.index = -1;
+      state.countEl.textContent = "0/0";
+      state.listEl.hidden = true;
+      state.listEl.empty();
+      return;
+    }
+    const hits = [];
+    for (const node of canvas.nodes.values()) {
+      const title = nodeTitleOf(node);
+      const raw = nodeTextContent(node);
+      const hay = `${title}
+${raw}`.toLowerCase();
+      const pos = hay.indexOf(query);
+      if (pos === -1) continue;
+      const rawFlat = raw.replace(/\s+/g, " ").trim();
+      const rawPos = rawFlat.toLowerCase().indexOf(query);
+      let snippet = "";
+      if (rawPos !== -1) {
+        const start = Math.max(0, rawPos - 18);
+        const end = Math.min(rawFlat.length, rawPos + query.length + 34);
+        snippet = (start > 0 ? "\u2026" : "") + rawFlat.slice(start, end) + (end < rawFlat.length ? "\u2026" : "");
+      }
+      hits.push({
+        node,
+        title,
+        snippet,
+        kindLabel: kindBadge(node)
+      });
+    }
+    hits.sort((a, b) => a.node.y - b.node.y || a.node.x - b.node.x);
+    state.hits = hits;
+    state.index = hits.length > 0 ? 0 : -1;
+    for (const hit of hits) {
+      hit.node.nodeEl?.classList.add("jce-search-hit");
+    }
+    this.renderList(canvas, state);
+    if (hits.length > 0 && jumpToFirst) {
+      this.activateHit(canvas, state, 0);
+    } else {
+      this.updateCount(state);
+    }
+  }
+  step(canvas, state, delta) {
+    if (!state.hits.length) return;
+    const len = state.hits.length;
+    const next = state.index < 0 ? 0 : (state.index + delta + len) % len;
+    this.activateHit(canvas, state, next);
+  }
+  activateHit(canvas, state, index) {
+    const hit = state.hits[index];
+    if (!hit) return;
+    for (const h of state.hits) h.node.nodeEl?.classList.remove("jce-search-current");
+    state.index = index;
+    this.updateCount(state);
+    this.opts.onRevealNode?.(canvas, hit.node.id);
+    hit.node.nodeEl?.classList.add("jce-search-hit", "jce-search-current");
+    canvas.selectOnly(hit.node);
+    focusNodeInViewport(canvas, hit.node);
+    const rows = state.listEl.querySelectorAll(".jce-search-item");
+    rows.forEach((row, i) => {
+      const active = i === index;
+      row.classList.toggle("is-active", active);
+      if (active) row.scrollIntoView({ block: "nearest" });
+    });
+  }
+  updateCount(state) {
+    if (!state.hits.length) {
+      state.countEl.textContent = "0/0";
+      return;
+    }
+    state.countEl.textContent = `${state.index + 1}/${state.hits.length}`;
+  }
+  renderList(canvas, state) {
+    state.listEl.empty();
+    if (!state.hits.length) {
+      state.listEl.hidden = true;
+      return;
+    }
+    state.listEl.hidden = false;
+    state.hits.forEach((hit, i) => {
+      const item = state.listEl.createEl("button", {
+        type: "button",
+        cls: "jce-search-item"
+      });
+      item.toggleClass("is-active", i === state.index);
+      item.createSpan({ cls: "jce-search-badge", text: hit.kindLabel });
+      const body = item.createSpan({ cls: "jce-search-item-body" });
+      body.createSpan({ cls: "jce-search-item-title", text: hit.title });
+      if (hit.snippet && hit.snippet !== hit.title) {
+        body.createSpan({ cls: "jce-search-item-sub", text: hit.snippet });
+      }
+      item.addEventListener("mousedown", (evt) => evt.preventDefault());
+      item.addEventListener("click", () => this.activateHit(canvas, state, i));
+    });
+  }
+  clearHighlights(canvas) {
+    for (const node of canvas.nodes.values()) {
+      node.nodeEl?.classList.remove("jce-search-hit", "jce-search-current");
+    }
+  }
+};
+function kindBadge(node) {
+  const kind = kindOf(node);
+  if (kind === "note") return "\u7B14\u8BB0";
+  if (kind === "text") return "\u6587\u5B57";
+  if (kind === "mindmap") return "\u5BFC\u56FE";
+  if (isGroupNode(node)) return "\u5206\u533A";
+  if (node.getData().type === "file") return "\u6587\u4EF6";
+  return "\u5361\u7247";
+}
+
 // src/todo.ts
 var import_view3 = require("@codemirror/view");
 var TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/;
@@ -1869,6 +2684,67 @@ function findView2(el) {
   return null;
 }
 
+// src/zoomlod.ts
+var FAR_SCALE = 0.32;
+var ZoomLodController = class {
+  constructor() {
+    this.lastScale = /* @__PURE__ */ new WeakMap();
+  }
+  sync(canvas) {
+    const scale = scaleOf(canvas);
+    const prev = this.lastScale.get(canvas);
+    if (prev === void 0 || Math.abs(scale - prev) > 4e-3) {
+      this.lastScale.set(canvas, scale);
+      canvas.wrapperEl.setCssProps({ "--jce-scale": scale.toFixed(3) });
+    }
+    const nativeZoomOut = canvas.wrapperEl.classList.contains("mod-zoomed-out");
+    const isFar = nativeZoomOut || scale <= FAR_SCALE;
+    canvas.wrapperEl.toggleClass("jce-zoom-far", isFar);
+    for (const node of allNodes(canvas)) {
+      const host = node.containerEl;
+      if (!host) continue;
+      let overlay = host.querySelector(":scope > .jce-lod-overlay");
+      const skip = !isFar || isMindmap(node) || isGroupNode(node) || isCardFolded(node) || isEditing(node) || node.nodeEl.classList.contains("jce-sec-hidden");
+      if (skip) {
+        if (overlay) overlay.hidden = true;
+        continue;
+      }
+      const title = nodeTitleOf(node);
+      const todo = todoProgressOf(nodeTextContent(node));
+      const badge = todo ? `\u2713 ${todo.done}/${todo.total}` : "";
+      const compact = node.height < 115;
+      const sig = `${title}
+${badge}
+${compact ? "C" : ""}`;
+      if (!overlay) {
+        overlay = host.createDiv({ cls: "jce-lod-overlay" });
+        overlay.createDiv({ cls: "jce-lod-title" });
+        overlay.createDiv({ cls: "jce-lod-badge" });
+      }
+      overlay.hidden = false;
+      overlay.toggleClass("is-compact", compact);
+      if (overlay.dataset.sig !== sig) {
+        overlay.dataset.sig = sig;
+        const titleEl = overlay.querySelector(".jce-lod-title");
+        const badgeEl = overlay.querySelector(".jce-lod-badge");
+        if (titleEl) titleEl.textContent = title;
+        if (badgeEl) {
+          badgeEl.textContent = badge;
+          badgeEl.hidden = !badge;
+        }
+      }
+    }
+  }
+  detach(canvas) {
+    this.lastScale.delete(canvas);
+    canvas.wrapperEl.classList.remove("jce-zoom-far");
+    canvas.wrapperEl.style.removeProperty("--jce-scale");
+    for (const node of allNodes(canvas)) {
+      node.nodeEl.querySelector(".jce-lod-overlay")?.remove();
+    }
+  }
+};
+
 // src/main.ts
 var TOOL_KEYS = {
   v: "select",
@@ -1879,16 +2755,35 @@ var TOOL_KEYS = {
   g: "section",
   d: "todo"
 };
-var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
+var CanvasEnhancePlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
+    this.keyScope = null;
     this.toolbars = /* @__PURE__ */ new Map();
     this.placing = null;
+    this.blankDown = null;
     this.hookedDocs = /* @__PURE__ */ new WeakSet();
     this.frameHooks = /* @__PURE__ */ new WeakSet();
   }
   async onload() {
-    this.chrome = new Chrome(this, (canvas) => this.hookFrames(canvas));
+    this.collapse = new CardCollapseController();
+    this.zoomLod = new ZoomLodController();
+    this.focus = new FocusController();
+    this.search = new CanvasSearchBar({
+      onRevealNode: (canvas, nodeId) => {
+        this.collapse.expandContainingGroup(canvas, nodeId);
+        this.chrome.invalidate(canvas);
+      },
+      onOpenChange: (canvas, open) => {
+        this.toolbars.get(canvas)?.setSearchActive(open);
+      }
+    });
+    this.chrome = new Chrome(this, (canvas) => {
+      this.hookFrames(canvas);
+      this.collapse.sync(canvas);
+      this.zoomLod.sync(canvas);
+      this.focus.sync(canvas);
+    });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
@@ -1903,12 +2798,40 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
       setColor: (canvas, nodeId, color) => this.setColor(canvas, nodeId, color),
       setCardBg: (canvas, nodeId, color) => this.setCardBg(canvas, nodeId, color),
       rotate: (canvas, nodeId) => this.mindmap.rotate(canvas, nodeId),
-      setFolded: (canvas, nodeId, folded) => this.mindmap.setFolded(canvas, nodeId, folded)
+      setFolded: (canvas, nodeId, folded) => this.mindmap.setFolded(canvas, nodeId, folded),
+      focus: (canvas, node) => {
+        const sel = selectedNodes(canvas);
+        const targets = sel.some((n) => n.id === node.id) ? sel : [node];
+        this.focus.enter(canvas, targets);
+      },
+      unfocus: (canvas) => this.focus.exit(canvas),
+      isFocused: (canvas) => this.focus.isActive(canvas),
+      groupSelection: (canvas, fallbackNode) => this.groupSelection(canvas, fallbackNode),
+      toggleCardFold: (canvas, nodeId) => {
+        this.collapse.toggle(canvas, nodeId);
+        this.chrome.invalidate(canvas);
+      }
     });
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("file-open", () => window.setTimeout(() => this.sync(), 60)));
-    this.registerDomEvent(document, "keydown", (evt) => this.onKey(evt), true);
+    this.registerDomEvent(window, "keydown", (evt) => this.onKey(evt), true);
+    const scope = new import_obsidian6.Scope(this.app.scope);
+    scope.register(["Mod"], "g", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.groupSelection(canvas);
+      this.setActive(canvas, "select");
+      return false;
+    });
+    scope.register(["Mod"], "f", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.search.open(canvas);
+      return false;
+    });
+    this.app.keymap.pushScope(scope);
+    this.keyScope = scope;
     this.registerDomEvent(window, "pointerdown", (evt) => this.todo.onPointerDown(evt), true);
     this.registerDomEvent(window, "click", (evt) => this.todo.onClick(evt), true);
     this.registerDomEvent(document, "pointermove", (evt) => this.onPointerMove(evt), true);
@@ -1916,25 +2839,74 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
       document,
       "pointerdown",
       (evt) => {
-        if (this.placing) this.onPlaceClick(evt);
+        if (this.placing) {
+          this.onPlaceClick(evt);
+        } else if (evt.button === 0) {
+          const canvas = activeCanvas(this.app);
+          const target = evt.target;
+          if (canvas && this.focus.isActive(canvas) && target && canvas.wrapperEl.contains(target) && !target.closest(".canvas-node") && !isInsideCanvasUi(target)) {
+            this.blankDown = { canvas, x: evt.clientX, y: evt.clientY };
+          } else {
+            this.blankDown = null;
+          }
+        }
         this.syncSelectionChrome();
       },
       true
     );
-    this.registerDomEvent(document, "pointerup", () => this.syncSelectionChrome(), true);
+    this.registerDomEvent(
+      document,
+      "pointerup",
+      (evt) => {
+        if (this.blankDown) {
+          const down = this.blankDown;
+          this.blankDown = null;
+          if (Math.hypot(evt.clientX - down.x, evt.clientY - down.y) < 6) {
+            this.focus.onCanvasBlankClick(down.canvas);
+          }
+        }
+        this.syncSelectionChrome();
+      },
+      true
+    );
     this.addCommand({
       id: "create-section",
-      name: "\u65B0\u5EFA\u5206\u533A / Create Section",
+      name: "\u65B0\u5EFA\u5206\u533A / Create section",
       checkCallback: (checking) => {
         const canvas = activeCanvas(this.app);
         if (!canvas) return false;
-        if (!checking) {
-          createObject(this.chrome, {
-            canvas,
-            kind: "section",
-            at: viewportCenter(canvas, KIND_SIZE.section)
-          });
-        }
+        if (!checking) this.groupSelection(canvas);
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "search-canvas",
+      name: "\u753B\u5E03\u5185\u641C\u7D22 / Search in canvas",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.search.open(canvas);
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "\u5207\u6362\u805A\u7126\u6A21\u5F0F / Toggle focus mode",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!this.focus.isActive(canvas) && !selectedNodes(canvas).length) return false;
+        if (!checking) this.focus.toggle(canvas);
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "group-selection-into-section",
+      name: "\u6846\u9009\u6253\u5305\u8FDB\u5206\u533A / Group selection into section",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.groupSelection(canvas);
         return true;
       }
     });
@@ -1953,10 +2925,21 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
     this.sync();
   }
   onunload() {
+    if (this.keyScope) {
+      this.app.keymap.popScope(this.keyScope);
+      this.keyScope = null;
+    }
     this.setPlacing(null);
+    this.blankDown = null;
     this.connect.exit();
     this.formats.hide();
-    for (const canvas of this.toolbars.keys()) this.chrome.detach(canvas);
+    this.search.destroy();
+    this.focus.destroy();
+    for (const canvas of this.toolbars.keys()) {
+      this.collapse.detach(canvas);
+      this.zoomLod.detach(canvas);
+      this.chrome.detach(canvas);
+    }
     for (const bar of this.toolbars.values()) bar.detach();
     this.toolbars.clear();
   }
@@ -1975,6 +2958,10 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
     for (const [canvas, bar] of Array.from(this.toolbars)) {
       if (seen.has(canvas)) continue;
       bar.detach();
+      this.search.detach(canvas);
+      this.focus.detach(canvas);
+      this.collapse.detach(canvas);
+      this.zoomLod.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -1985,8 +2972,10 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
     const existing = this.toolbars.get(canvas);
     if (existing && host.contains(existing.el)) return;
     existing?.detach();
-    if (getComputedStyle(host).position === "static") host.style.position = "relative";
-    const bar = new CanvasToolbar((tool) => this.onTool(canvas, tool));
+    const bar = new CanvasToolbar(
+      (tool) => this.onTool(canvas, tool),
+      () => this.search.toggle(canvas)
+    );
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
@@ -2093,6 +3082,18 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
     const canvas = activeCanvas(this.app);
     if (!canvas) return;
     if (evt.key === "Escape") {
+      if (this.search.isOpen(canvas)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.search.close(canvas);
+        return;
+      }
+      if (this.focus.isActive(canvas)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.focus.exit(canvas);
+        return;
+      }
       this.setPlacing(null);
       this.connect.exit();
       this.formats.hide();
@@ -2100,15 +3101,24 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
       return;
     }
     if (evt.metaKey || evt.ctrlKey) {
-      if (!evt.shiftKey && !evt.altKey && evt.key.toLowerCase() === "g") {
-        if (isTyping(evt.target)) return;
-        evt.preventDefault();
-        createObject(this.chrome, {
-          canvas,
-          kind: "section",
-          at: viewportCenter(canvas, KIND_SIZE.section)
-        });
-        this.setActive(canvas, "select");
+      if (!evt.shiftKey && !evt.altKey) {
+        const key = evt.key.toLowerCase();
+        if (key === "f") {
+          if (isTyping(evt.target)) return;
+          evt.preventDefault();
+          evt.stopPropagation();
+          evt.stopImmediatePropagation();
+          this.search.open(canvas);
+          return;
+        }
+        if (key === "g") {
+          if (isTyping(evt.target)) return;
+          evt.preventDefault();
+          evt.stopPropagation();
+          evt.stopImmediatePropagation();
+          this.groupSelection(canvas);
+          this.setActive(canvas, "select");
+        }
       }
       return;
     }
@@ -2123,7 +3133,15 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
     }
     if (isTyping(evt.target)) return;
     if (evt.altKey || evt.shiftKey) return;
-    const tool = TOOL_KEYS[evt.key.toLowerCase()];
+    const lower = evt.key.toLowerCase();
+    if (lower === "f") {
+      if (this.focus.isActive(canvas) || selectedNodes(canvas).length > 0) {
+        evt.preventDefault();
+        this.focus.toggle(canvas);
+      }
+      return;
+    }
+    const tool = TOOL_KEYS[lower];
     if (!tool) return;
     evt.preventDefault();
     this.onTool(canvas, tool);
@@ -2197,6 +3215,45 @@ var CanvasEnhancePlugin = class extends import_obsidian3.Plugin {
    * behind would silently break the hierarchy. PRD §10.1 marks the treatment
    * of descendants as undecided, so this is a documented proposal.
    */
+  groupSelection(canvas, fallbackNode) {
+    const sel = selectedNodes(canvas).filter(
+      (n) => !n.nodeEl.classList.contains("jce-sec-hidden")
+    );
+    let targets;
+    if (fallbackNode) {
+      targets = sel.some((n) => n.id === fallbackNode.id) ? sel : [fallbackNode];
+    } else {
+      targets = sel;
+    }
+    if (!targets.length) {
+      createObject(this.chrome, {
+        canvas,
+        kind: "section",
+        at: viewportCenter(canvas, KIND_SIZE.section)
+      });
+      return;
+    }
+    const box = unionRect(targets.map(rectOf));
+    if (!box) return;
+    const padX = 32;
+    const padTop = 44;
+    const padBottom = 32;
+    const group = canvas.createGroupNode({
+      pos: { x: Math.round(box.x - padX), y: Math.round(box.y - padTop) },
+      size: {
+        width: Math.round(box.width + padX * 2),
+        height: Math.round(box.height + padTop + padBottom)
+      },
+      label: DEFAULTS.section,
+      focus: false,
+      save: true
+    });
+    if (!group) return;
+    tag(canvas, group, "section");
+    commit(canvas);
+    this.chrome.invalidate(canvas);
+    canvas.selectOnly(group);
+  }
   removeNode(canvas, nodeId) {
     const node = canvas.nodes.get(nodeId);
     if (!node) return;
@@ -2214,10 +3271,9 @@ function canvasOf(leaf) {
   return view.canvas ?? null;
 }
 function activeCanvas(app) {
-  const leaf = app.workspace.activeLeaf;
-  if (!leaf) return null;
-  if (leaf.view.getViewType?.() !== "canvas") return null;
-  return canvasOf(leaf);
+  const view = app.workspace.getActiveViewOfType(import_obsidian6.FileView);
+  if (!view || view.getViewType() !== "canvas") return null;
+  return view.canvas ?? null;
 }
 function nodeById(canvas, id) {
   return canvas.nodes.get(id);
