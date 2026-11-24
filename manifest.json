@@ -1,9 +1,10 @@
 {
-  "id": "canvas-enhance",
-  "name": "Canvas 增强",
-  "version": "1.4.0",
+  "id": "canvas-joy",
+  "name": "Canvas Joy",
+  "version": "1.5.0",
   "minAppVersion": "1.5.0",
-  "description": "在 Obsidian 原生 Canvas 上提供 Heptabase 风格的工具栏、笔记卡、Text、思维导图与分区。",
-  "author": "JOY",
+  "description": "Heptabase-style visual thinking for Canvas: tinted note cards, collapsible cards and sections, focus mode, in-canvas search, minimap, alignment bar, mindmaps, and text formatting.",
+  "author": "Joy",
+  "authorUrl": "https://github.com/joyitang",
   "isDesktopOnly": false
 }

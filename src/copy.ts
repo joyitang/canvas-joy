@@ -16,6 +16,20 @@ export const TOOLS = {
 export type ToolId = keyof typeof TOOLS;
 
 export const SEARCH_TOOL = { id: "search", zh: "搜索", en: "Search", key: "⌘F" } as const;
+export const MINIMAP_TOOL = { id: "minimap", zh: "小地图", en: "Minimap" } as const;
+
+export const ALIGN_OPS = {
+  left: { zh: "左对齐", en: "Align left" },
+  centerX: { zh: "水平居中", en: "Align horizontal centers" },
+  right: { zh: "右对齐", en: "Align right" },
+  top: { zh: "顶对齐", en: "Align top" },
+  centerY: { zh: "垂直居中", en: "Align vertical centers" },
+  bottom: { zh: "底对齐", en: "Align bottom" },
+  distX: { zh: "水平等距分布", en: "Distribute horizontally" },
+  distY: { zh: "垂直等距分布", en: "Distribute vertically" },
+} as const;
+
+export type AlignOp = keyof typeof ALIGN_OPS;
 
 export const MENU = {
   color: { zh: "颜色", en: "Color" },
@@ -27,6 +41,7 @@ export const MENU = {
   focus: { zh: "聚焦", en: "Focus" },
   unfocus: { zh: "退出聚焦", en: "Exit focus" },
   groupSection: { zh: "打包进分区", en: "Group into section" },
+  align: { zh: "对齐与分布", en: "Align & distribute" },
   collapseCard: { zh: "折叠", en: "Collapse" },
   expandCard: { zh: "展开", en: "Expand" },
 } as const;

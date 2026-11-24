@@ -946,3 +946,128 @@
 .canvas-wrapper.jce-zoom-far .canvas-node.jce-card-folded .jce-collapsed-title {
   font-size: clamp(15px, calc(12px / max(var(--jce-scale, 1), 0.18)), 40px);
 }
+
+/* ----------------------------------------------------- v1.5.0 align bar */
+
+.jce-align-bar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 36;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s, 0 4px 16px rgba(0, 0, 0, 0.12));
+}
+
+.jce-align-bar[hidden] {
+  display: none !important;
+}
+
+.jce-align-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--background-modifier-border);
+}
+
+.jce-align-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.jce-align-btn:hover:not(.is-disabled) {
+  background: var(--background-modifier-hover);
+}
+
+.jce-align-btn.is-disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.jce-align-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ------------------------------------------------------- v1.5.0 minimap */
+
+.jce-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 38px;
+  z-index: 35;
+  width: 208px;
+  height: 136px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-primary) 92%, transparent);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s, 0 6px 20px rgba(0, 0, 0, 0.12));
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.jce-minimap[hidden] {
+  display: none !important;
+}
+
+.jce-minimap-canvas {
+  width: 208px;
+  height: 136px;
+  display: block;
+  cursor: grab;
+}
+
+.jce-minimap-canvas:active {
+  cursor: grabbing;
+}
+
+.jce-minimap-close {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--background-primary) 85%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  box-shadow: none;
+}
+
+.jce-minimap:hover .jce-minimap-close {
+  opacity: 1;
+}
+
+.jce-minimap-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.jce-minimap-close svg {
+  width: 12px;
+  height: 12px;
+}

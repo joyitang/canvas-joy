@@ -19,7 +19,7 @@
  */
 
 import { EditorView } from "@codemirror/view";
-import { setIcon, type Plugin } from "obsidian";
+import { FileView, setIcon, type Plugin } from "obsidian";
 import { CanvasLike } from "./bridge";
 
 type FormatId =
@@ -208,8 +208,9 @@ export class FormatBar {
   }
 
   private activeCanvas(): CanvasLike | null {
-    const view = this.plugin.app.workspace.activeLeaf?.view as { canvas?: CanvasLike } | undefined;
-    return view?.canvas ?? null;
+    const view = this.plugin.app.workspace.getActiveViewOfType(FileView);
+    if (!view || view.getViewType() !== "canvas") return null;
+    return (view as unknown as { canvas?: CanvasLike }).canvas ?? null;
   }
 
   /** Hook every editing iframe on a canvas (they are recreated per session). */

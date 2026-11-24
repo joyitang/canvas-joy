@@ -17,11 +17,13 @@ import {
   selectedNodes,
   viewportCenter,
 } from "./bridge";
+import { AlignBar, applyAlignment } from "./align";
 import { Chrome } from "./chrome";
 import { CardCollapseController } from "./collapse";
 import { ConnectTool } from "./connect";
 import { FocusController } from "./focus";
 import { FormatBar } from "./format";
+import { MinimapController } from "./minimap";
 import { CanvasToolbar } from "./toolbar";
 import { ContextMenus } from "./menus";
 import { MindmapController } from "./mindmap";
@@ -29,7 +31,7 @@ import { createObject, tag } from "./objects";
 import { CanvasSearchBar } from "./search";
 import { TodoController } from "./todo";
 import { ZoomLodController } from "./zoomlod";
-import { DEFAULTS, ToolId, TOOLS } from "./copy";
+import { AlignOp, DEFAULTS, ToolId, TOOLS } from "./copy";
 import { Kind, isMindmap, kindOf, rootIdOf, treeOf, descendantsOf, CARD_BG } from "./model";
 import { KIND_SIZE, rectOf, unionRect } from "./layout";
 
@@ -54,7 +56,10 @@ export default class CanvasEnhancePlugin extends Plugin {
   private focus!: FocusController;
   private collapse!: CardCollapseController;
   private zoomLod!: ZoomLodController;
+  private align!: AlignBar;
+  private minimap!: MinimapController;
   private keyScope: Scope | null = null;
+  private prefs: { minimapOpen?: boolean } = {};
 
   private toolbars = new Map<CanvasLike, CanvasToolbar>();
   private placing: { canvas: CanvasLike; kind: Kind; text?: string } | null = null;
@@ -63,9 +68,19 @@ export default class CanvasEnhancePlugin extends Plugin {
   private frameHooks = new WeakSet<CanvasLike>();
 
   async onload(): Promise<void> {
+    this.prefs = ((await this.loadData()) as { minimapOpen?: boolean } | null) ?? {};
     this.collapse = new CardCollapseController();
     this.zoomLod = new ZoomLodController();
     this.focus = new FocusController();
+    this.align = new AlignBar({
+      onAlign: (canvas, op) => this.alignSelection(canvas, op),
+      isSuppressed: (canvas) => this.search.isOpen(canvas) || this.focus.isActive(canvas),
+    });
+    this.minimap = new MinimapController(this.prefs.minimapOpen === true, (open) => {
+      this.prefs.minimapOpen = open;
+      void this.saveData(this.prefs);
+      for (const bar of this.toolbars.values()) bar.setMinimapActive(open);
+    });
     this.search = new CanvasSearchBar({
       onRevealNode: (canvas, nodeId) => {
         this.collapse.expandContainingGroup(canvas, nodeId);
@@ -73,6 +88,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       },
       onOpenChange: (canvas, open) => {
         this.toolbars.get(canvas)?.setSearchActive(open);
+        this.align.sync(canvas);
       },
     });
     this.chrome = new Chrome(this, (canvas) => {
@@ -80,6 +96,8 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.collapse.sync(canvas);
       this.zoomLod.sync(canvas);
       this.focus.sync(canvas);
+      this.align.sync(canvas);
+      this.minimap.sync(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
@@ -100,10 +118,15 @@ export default class CanvasEnhancePlugin extends Plugin {
         const sel = selectedNodes(canvas);
         const targets = sel.some((n) => n.id === node.id) ? sel : [node];
         this.focus.enter(canvas, targets);
+        this.align.sync(canvas);
       },
-      unfocus: (canvas) => this.focus.exit(canvas),
+      unfocus: (canvas) => {
+        this.focus.exit(canvas);
+        this.align.sync(canvas);
+      },
       isFocused: (canvas) => this.focus.isActive(canvas),
       groupSelection: (canvas, fallbackNode) => this.groupSelection(canvas, fallbackNode),
+      alignSelection: (canvas, op) => this.alignSelection(canvas, op),
       toggleCardFold: (canvas, nodeId) => {
         this.collapse.toggle(canvas, nodeId);
         this.chrome.invalidate(canvas);
@@ -227,6 +250,17 @@ export default class CanvasEnhancePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "toggle-minimap",
+      name: "切换小地图 / Toggle minimap",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.minimap.toggle(this.toolbars.keys());
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "add-mindmap-child",
       name: "新建导图子节点 / Add mindmap child",
       checkCallback: (checking) => {
@@ -253,6 +287,8 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.formats.hide();
     this.search.destroy();
     this.focus.destroy();
+    this.align.destroy();
+    this.minimap.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
@@ -280,6 +316,8 @@ export default class CanvasEnhancePlugin extends Plugin {
       bar.detach();
       this.search.detach(canvas);
       this.focus.detach(canvas);
+      this.align.detach(canvas);
+      this.minimap.detach(canvas);
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.chrome.detach(canvas);
@@ -295,8 +333,10 @@ export default class CanvasEnhancePlugin extends Plugin {
     existing?.detach();
     const bar = new CanvasToolbar(
       (tool) => this.onTool(canvas, tool),
-      () => this.search.toggle(canvas)
+      () => this.search.toggle(canvas),
+      () => this.minimap.toggle(this.toolbars.keys())
     );
+    bar.setMinimapActive(this.minimap.isOpen());
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
@@ -309,6 +349,7 @@ export default class CanvasEnhancePlugin extends Plugin {
     canvas.requestFrame = () => {
       original();
       this.chrome.schedule(canvas);
+      this.minimap.sync(canvas);
     };
   }
 
@@ -601,6 +642,13 @@ export default class CanvasEnhancePlugin extends Plugin {
     commit(canvas);
     this.chrome.invalidate(canvas);
     canvas.selectOnly(group);
+  }
+
+  private alignSelection(canvas: CanvasLike, op: AlignOp): void {
+    if (applyAlignment(canvas, op)) {
+      this.chrome.invalidate(canvas);
+      this.minimap.sync(canvas);
+    }
   }
 
   private removeNode(canvas: CanvasLike, nodeId: string): void {

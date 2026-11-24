@@ -8,45 +8,54 @@
  */
 
 import { setIcon } from "obsidian";
-import { SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
+import { MINIMAP_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
 import { ICONS } from "./icons";
 
 export class CanvasToolbar {
   el: HTMLElement;
   private current: ToolId | null = "select";
   private searchBtn: HTMLButtonElement;
+  private minimapBtn: HTMLButtonElement;
 
   constructor(
     private onPick: (id: ToolId) => void,
-    private onSearch: () => void
+    private onSearch: () => void,
+    private onMinimap: () => void
   ) {
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
     this.el.setAttribute("role", "toolbar");
-    this.el.setAttribute("aria-label", "Canvas 增强");
+    this.el.setAttribute("aria-label", "Canvas Joy");
 
     const order: ToolId[] = ["select", "connect", "note", "text", "todo", "mindmap", "section"];
+    const parser = new DOMParser();
     order.forEach((id, index) => {
       if (index === 2) {
-        const sep = document.createElement("div");
-        sep.className = "jce-tool-sep";
-        this.el.appendChild(sep);
+        this.el.createDiv({ cls: "jce-tool-sep" });
       }
       const meta = TOOLS[id];
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "jce-tool";
-      btn.dataset.tool = id;
-      btn.title = tooltip(meta);
-      btn.setAttribute("aria-label", tooltip(meta));
-      btn.innerHTML = ICONS[id] ?? "";
+      const btn = this.el.createEl("button", {
+        type: "button",
+        cls: "jce-tool",
+        attr: {
+          "data-tool": id,
+          title: tooltip(meta),
+          "aria-label": tooltip(meta),
+        },
+      });
+      const rawSvg = ICONS[id];
+      if (rawSvg) {
+        const doc = parser.parseFromString(rawSvg, "image/svg+xml");
+        if (doc.documentElement.tagName.toLowerCase() === "svg") {
+          btn.appendChild(document.importNode(doc.documentElement, true));
+        }
+      }
       btn.addEventListener("mousedown", (evt) => evt.preventDefault());
       btn.addEventListener("click", (evt) => {
         evt.preventDefault();
         evt.stopPropagation();
         this.onPick(id);
       });
-      this.el.appendChild(btn);
     });
 
     this.el.createDiv({ cls: "jce-tool-sep" });
@@ -69,19 +78,41 @@ export class CanvasToolbar {
     });
     this.searchBtn = searchBtn;
 
+    const minimapBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-minimap",
+      attr: {
+        "data-tool": "minimap",
+        title: tooltip(MINIMAP_TOOL),
+        "aria-label": tooltip(MINIMAP_TOOL),
+      },
+    });
+    setIcon(minimapBtn, "map");
+    minimapBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    minimapBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onMinimap();
+    });
+    this.minimapBtn = minimapBtn;
+
     this.setActive("select");
   }
 
   setActive(id: ToolId | null): void {
     this.current = id;
     this.el.querySelectorAll<HTMLElement>(".jce-tool").forEach((btn) => {
-      if (btn === this.searchBtn) return;
+      if (btn === this.searchBtn || btn === this.minimapBtn) return;
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
   }
 
   setSearchActive(active: boolean): void {
     this.searchBtn.classList.toggle("is-active", active);
+  }
+
+  setMinimapActive(active: boolean): void {
+    this.minimapBtn.classList.toggle("is-active", active);
   }
 
   getActive(): ToolId | null {

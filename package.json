@@ -1,16 +1,22 @@
 {
-  "name": "canvas-enhance",
-  "version": "1.4.0",
-  "description": "Heptabase-style enhancement for Obsidian Canvas",
+  "name": "canvas-joy",
+  "version": "1.5.0",
+  "description": "Heptabase-style visual thinking for Obsidian Canvas",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "check": "tsc --noEmit"
   },
-  "keywords": [],
-  "author": "JOY",
-  "license": "UNLICENSED",
+  "keywords": [
+    "obsidian",
+    "canvas",
+    "heptabase",
+    "whiteboard",
+    "mindmap"
+  ],
+  "author": "Joy",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",

@@ -2,7 +2,7 @@
  * mindmap.ts — Tab children, subtree dragging, fold/unfold and rotate.
  */
 
-import type { Plugin } from "obsidian";
+import { FileView, type Plugin } from "obsidian";
 import {
   CanvasLike,
   NodeLike,
@@ -265,9 +265,7 @@ function collectDescendants(tree: ReturnType<typeof treeOf>, id: string): string
 
 /** Active canvas, or null. */
 export function activeCanvasView(plugin: Plugin): CanvasLike | null {
-  const view = plugin.app.workspace.activeLeaf?.view as
-    | { getViewType?: () => string; canvas?: CanvasLike }
-    | undefined;
-  if (!view || view.getViewType?.() !== "canvas") return null;
-  return view.canvas ?? null;
+  const view = plugin.app.workspace.getActiveViewOfType(FileView);
+  if (!view || view.getViewType() !== "canvas") return null;
+  return (view as unknown as { canvas?: CanvasLike }).canvas ?? null;
 }

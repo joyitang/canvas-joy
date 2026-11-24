@@ -9,7 +9,7 @@
 
 import { FileView, Menu, type Plugin } from "obsidian";
 import { CanvasLike, NodeLike, Point, isInsideCanvasUi, selectedNodes } from "./bridge";
-import { MENU, TOOLS, menuLabel } from "./copy";
+import { ALIGN_OPS, AlignOp, MENU, TOOLS, menuLabel } from "./copy";
 import {
   CARD_BG_PALETTE,
   Kind,
@@ -34,6 +34,7 @@ type Handlers = {
   unfocus: (canvas: CanvasLike) => void;
   isFocused: (canvas: CanvasLike) => boolean;
   groupSelection: (canvas: CanvasLike, fallbackNode?: NodeLike) => void;
+  alignSelection: (canvas: CanvasLike, op: AlignOp) => void;
   toggleCardFold: (canvas: CanvasLike, nodeId: string) => void;
 };
 
@@ -194,6 +195,25 @@ export class ContextMenus {
     );
 
     const sel = selectedNodes(canvas);
+    if (sel.length >= 2) {
+      menu.addItem((item) => {
+        item.setTitle(menuLabel(MENU.align)).setIcon("align-start-vertical");
+        const sub = (item as unknown as { setSubmenu?: () => Menu }).setSubmenu?.();
+        const target: Menu = sub ?? menu;
+        const ops: AlignOp[] =
+          sel.length >= 3
+            ? ["left", "centerX", "right", "top", "centerY", "bottom", "distX", "distY"]
+            : ["left", "centerX", "right", "top", "centerY", "bottom"];
+        for (const op of ops) {
+          target.addItem((row) =>
+            row
+              .setTitle(menuLabel(ALIGN_OPS[op]))
+              .onClick(() => this.handlers.alignSelection(canvas, op))
+          );
+        }
+      });
+    }
+
     if (sel.length > 1 || !isGroupNode(node)) {
       menu.addItem((row) =>
         row
