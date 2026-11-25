@@ -820,11 +820,13 @@ export class ChronosController {
       const p2 = clamp(((state.selEnd - state.minYear) / span) * 100, p1, 100);
 
       if (band) {
-        band.style.left = `${p1}%`;
-        band.style.width = `${Math.max(0.5, p2 - p1)}%`;
+        band.setCssStyles({
+          left: `${p1}%`,
+          width: `${Math.max(0.5, p2 - p1)}%`,
+        });
       }
-      if (thumbStart) thumbStart.style.left = `${p1}%`;
-      if (thumbEnd) thumbEnd.style.left = `${p2}%`;
+      if (thumbStart) thumbStart.setCssStyles({ left: `${p1}%` });
+      if (thumbEnd) thumbEnd.setCssStyles({ left: `${p2}%` });
 
       if (ticksEl) {
         const sig = `${state.minYear}:${state.maxYear}`;
@@ -1046,12 +1048,11 @@ function findDateSpanAtEvent(
 
 function dateAtPointPiercingBlocker(node: NodeLike, x: number, y: number): TimeRange | null {
   const blocker = node.nodeEl.querySelector<HTMLElement>(".canvas-node-content-blocker");
-  const prev = blocker?.style.pointerEvents;
-  if (blocker) blocker.style.pointerEvents = "none";
+  blocker?.classList.add("jce-pierce-blocker");
   try {
     return dateAtPoint(x, y);
   } finally {
-    if (blocker) blocker.style.pointerEvents = prev ?? "";
+    blocker?.classList.remove("jce-pierce-blocker");
   }
 }
 

@@ -668,8 +668,8 @@ export class EdgeAnchorsController {
       focused.to.side,
       edgeOffsetOf(focused, "to")
     );
-    pair.from.style.transform = `translate(${fromPt.x}px, ${fromPt.y}px)`;
-    pair.to.style.transform = `translate(${toPt.x}px, ${toPt.y}px)`;
+    pair.from.setCssStyles({ transform: `translate(${fromPt.x}px, ${fromPt.y}px)` });
+    pair.to.setCssStyles({ transform: `translate(${toPt.x}px, ${toPt.y}px)` });
     pair.from.hidden = false;
     pair.to.hidden = false;
   }
@@ -868,7 +868,7 @@ export class EdgeAnchorsController {
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);
     }
-    dot.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
+    dot.setCssStyles({ transform: `translate(${pt.x}px, ${pt.y}px)` });
     dot.classList.toggle("is-centered", centered);
     dot.hidden = false;
   }

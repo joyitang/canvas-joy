@@ -1474,3 +1474,7 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.jce-pierce-blocker {
+  pointer-events: none !important;
+}

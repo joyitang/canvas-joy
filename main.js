@@ -904,8 +904,8 @@ var EdgeAnchorsController = class {
       focused.to.side,
       edgeOffsetOf(focused, "to")
     );
-    pair.from.style.transform = `translate(${fromPt.x}px, ${fromPt.y}px)`;
-    pair.to.style.transform = `translate(${toPt.x}px, ${toPt.y}px)`;
+    pair.from.setCssStyles({ transform: `translate(${fromPt.x}px, ${fromPt.y}px)` });
+    pair.to.setCssStyles({ transform: `translate(${toPt.x}px, ${toPt.y}px)` });
     pair.from.hidden = false;
     pair.to.hidden = false;
   }
@@ -1064,7 +1064,7 @@ var EdgeAnchorsController = class {
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);
     }
-    dot.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
+    dot.setCssStyles({ transform: `translate(${pt.x}px, ${pt.y}px)` });
     dot.classList.toggle("is-centered", centered);
     dot.hidden = false;
   }
@@ -2584,11 +2584,13 @@ var ChronosController = class {
       const p1 = clamp((state.selStart - state.minYear) / span * 100, 0, 100);
       const p2 = clamp((state.selEnd - state.minYear) / span * 100, p1, 100);
       if (band) {
-        band.style.left = `${p1}%`;
-        band.style.width = `${Math.max(0.5, p2 - p1)}%`;
+        band.setCssStyles({
+          left: `${p1}%`,
+          width: `${Math.max(0.5, p2 - p1)}%`
+        });
       }
-      if (thumbStart) thumbStart.style.left = `${p1}%`;
-      if (thumbEnd) thumbEnd.style.left = `${p2}%`;
+      if (thumbStart) thumbStart.setCssStyles({ left: `${p1}%` });
+      if (thumbEnd) thumbEnd.setCssStyles({ left: `${p2}%` });
       if (ticksEl) {
         const sig = `${state.minYear}:${state.maxYear}`;
         if (ticksEl.dataset.sig !== sig) {
@@ -2760,12 +2762,11 @@ function findDateSpanAtEvent(canvas, target, clientX, clientY) {
 }
 function dateAtPointPiercingBlocker(node, x, y) {
   const blocker = node.nodeEl.querySelector(".canvas-node-content-blocker");
-  const prev = blocker?.style.pointerEvents;
-  if (blocker) blocker.style.pointerEvents = "none";
+  blocker?.classList.add("jce-pierce-blocker");
   try {
     return dateAtPoint(x, y);
   } finally {
-    if (blocker) blocker.style.pointerEvents = prev ?? "";
+    blocker?.classList.remove("jce-pierce-blocker");
   }
 }
 function dateAtPoint(x, y) {
