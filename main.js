@@ -93,7 +93,7 @@ function nodeFromEvent(canvas, evt) {
 function isInsideCanvasUi(el) {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 function commit(canvas) {
@@ -115,9 +115,16 @@ function findEdge(canvas, fromId, toId) {
   }
   return void 0;
 }
-function createEdge(canvas, from, to, sides) {
+function createEdge(canvas, from, to, sides, offsets) {
   const existing = findEdge(canvas, from.id, to.id);
   if (existing) return existing;
+  const extra = {};
+  if (typeof offsets?.fromOffset === "number" && Number.isFinite(offsets.fromOffset)) {
+    extra.jceFromOffset = Math.round(offsets.fromOffset);
+  }
+  if (typeof offsets?.toOffset === "number" && Number.isFinite(offsets.toOffset)) {
+    extra.jceToOffset = Math.round(offsets.toOffset);
+  }
   const ctor = edgeCtor(canvas);
   if (ctor) {
     const edge = new ctor(
@@ -126,7 +133,11 @@ function createEdge(canvas, from, to, sides) {
       { node: from, side: sides.from, end: "none" },
       { node: to, side: sides.to, end: "arrow" }
     );
+    if (Object.keys(extra).length > 0) {
+      edge.unknownData = { ...edge.unknownData ?? {}, ...extra };
+    }
     canvas.addEdge(edge);
+    canvas.markMoved?.(edge);
     edge.render?.();
     commit(canvas);
     return edge;
@@ -140,7 +151,8 @@ function createEdge(canvas, from, to, sides) {
     fromEnd: "none",
     toNode: to.id,
     toSide: sides.to,
-    toEnd: "arrow"
+    toEnd: "arrow",
+    ...extra
   });
   canvas.setData(data);
   const made = canvas.edges.get(id);
@@ -160,7 +172,9 @@ function deleteNodes(canvas, ids) {
   canvas.requestFrame();
 }
 function selectedNodes(canvas) {
-  return Array.from(canvas.selection ?? []);
+  return Array.from(canvas.selection ?? []).filter(
+    (item) => !!item && typeof item === "object" && "nodeEl" in item && !!item.nodeEl
+  );
 }
 function autoSides(a, b) {
   const dx = b.x + b.width / 2 - (a.x + a.width / 2);
@@ -422,6 +436,638 @@ var AlignBar = class {
     const state = { barEl, distBtns };
     this.states.set(canvas, state);
     return state;
+  }
+};
+
+// src/anchors.ts
+var FROM_OFFSET = "jceFromOffset";
+var TO_OFFSET = "jceToOffset";
+var EDGE_MARGIN = 16;
+var CENTER_SNAP_PX = 10;
+var ARROW_ROTATION = {
+  top: "180",
+  bottom: "0",
+  left: "90",
+  right: "270"
+};
+var MAX_BEZIER_CONTROL = 150;
+var MIN_BEZIER_CONTROL = 70;
+var EDGE_OUTSET = 7;
+function isVerticalSide(side) {
+  return side === "left" || side === "right";
+}
+function sideSpan(bbox, side) {
+  return isVerticalSide(side) ? bbox.maxY - bbox.minY : bbox.maxX - bbox.minX;
+}
+function clampOffset(offset, span) {
+  if (span <= 0) return 0;
+  const pad = Math.min(EDGE_MARGIN, span / 2);
+  return Math.max(pad, Math.min(span - pad, offset));
+}
+function anchorPoint(bbox, side, offset) {
+  const span = sideSpan(bbox, side);
+  const pos = typeof offset === "number" && Number.isFinite(offset) ? clampOffset(offset, span) : span / 2;
+  switch (side) {
+    case "left":
+      return { x: bbox.minX, y: bbox.minY + pos };
+    case "right":
+      return { x: bbox.maxX, y: bbox.minY + pos };
+    case "top":
+      return { x: bbox.minX + pos, y: bbox.minY };
+    case "bottom":
+      return { x: bbox.minX + pos, y: bbox.maxY };
+  }
+}
+function pushOut(pt, side, dist = EDGE_OUTSET) {
+  switch (side) {
+    case "top":
+      return { x: pt.x, y: pt.y - dist };
+    case "bottom":
+      return { x: pt.x, y: pt.y + dist };
+    case "left":
+      return { x: pt.x - dist, y: pt.y };
+    case "right":
+      return { x: pt.x + dist, y: pt.y };
+  }
+}
+function buildBezierPath(fromPt, fromSide, toPt, toSide) {
+  const dist = Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y);
+  const ctrl = Math.max(MIN_BEZIER_CONTROL, Math.min(MAX_BEZIER_CONTROL, dist / 2));
+  const cp1 = pushOut(fromPt, fromSide, ctrl);
+  const cp2 = pushOut(toPt, toSide, ctrl);
+  return {
+    from: fromPt,
+    to: toPt,
+    cp1,
+    cp2,
+    path: `M${fromPt.x},${fromPt.y} C${cp1.x},${cp1.y} ${cp2.x},${cp2.y} ${toPt.x},${toPt.y}`
+  };
+}
+function nearestSideAndOffset(bbox, pos, opts) {
+  const snapCenter = opts?.snapCenter ?? true;
+  const sides = ["left", "right", "top", "bottom"];
+  let bestSide = opts?.preferredSide ?? "left";
+  let bestDist = Infinity;
+  let bestRawOffset = 0;
+  for (const side of sides) {
+    const span2 = sideSpan(bbox, side);
+    const raw = isVerticalSide(side) ? pos.y - bbox.minY : pos.x - bbox.minX;
+    const clamped = clampOffset(raw, span2);
+    const pt = anchorPoint(bbox, side, clamped);
+    const d = Math.hypot(pos.x - pt.x, pos.y - pt.y);
+    if (d < bestDist) {
+      bestDist = d;
+      bestSide = side;
+      bestRawOffset = clamped;
+    }
+  }
+  const span = sideSpan(bbox, bestSide);
+  const center = span / 2;
+  const snappedToCenter = snapCenter && Math.abs(bestRawOffset - center) <= CENTER_SNAP_PX;
+  const offset = snappedToCenter ? void 0 : Math.round(bestRawOffset);
+  const point = anchorPoint(bbox, bestSide, offset);
+  return { side: bestSide, offset, snappedToCenter, dist: bestDist, point };
+}
+function offsetOnSide(bbox, side, pos, snapCenter = true) {
+  const span = sideSpan(bbox, side);
+  const raw = isVerticalSide(side) ? pos.y - bbox.minY : pos.x - bbox.minX;
+  const clamped = clampOffset(raw, span);
+  const snappedToCenter = snapCenter && Math.abs(clamped - span / 2) <= CENTER_SNAP_PX;
+  const offset = snappedToCenter ? void 0 : Math.round(clamped);
+  return { offset, snappedToCenter, point: anchorPoint(bbox, side, offset) };
+}
+function computeAlignedOffsets(from, fromSide, to, toSide) {
+  const horizontal = isVerticalSide(fromSide) && isVerticalSide(toSide);
+  const vertical2 = !isVerticalSide(fromSide) && !isVerticalSide(toSide);
+  if (!horizontal && !vertical2) return {};
+  if (horizontal) {
+    const fromCenterY = from.y + from.height / 2;
+    const toCenterY = to.y + to.height / 2;
+    if (Math.abs(fromCenterY - toCenterY) <= CENTER_SNAP_PX) return {};
+    if (to.height >= from.height) {
+      const target = fromCenterY - to.y;
+      const clamped = clampOffset(target, to.height);
+      if (Math.abs(clamped - to.height / 2) > CENTER_SNAP_PX) {
+        return { toOffset: Math.round(clamped) };
+      }
+    } else {
+      const target = toCenterY - from.y;
+      const clamped = clampOffset(target, from.height);
+      if (Math.abs(clamped - from.height / 2) > CENTER_SNAP_PX) {
+        return { fromOffset: Math.round(clamped) };
+      }
+    }
+    return {};
+  }
+  const fromCenterX = from.x + from.width / 2;
+  const toCenterX = to.x + to.width / 2;
+  if (Math.abs(fromCenterX - toCenterX) <= CENTER_SNAP_PX) return {};
+  if (to.width >= from.width) {
+    const target = fromCenterX - to.x;
+    const clamped = clampOffset(target, to.width);
+    if (Math.abs(clamped - to.width / 2) > CENTER_SNAP_PX) {
+      return { toOffset: Math.round(clamped) };
+    }
+  } else {
+    const target = toCenterX - from.x;
+    const clamped = clampOffset(target, from.width);
+    if (Math.abs(clamped - from.width / 2) > CENTER_SNAP_PX) {
+      return { fromOffset: Math.round(clamped) };
+    }
+  }
+  return {};
+}
+function edgeOffsetOf(edge, end) {
+  const key = end === "from" ? FROM_OFFSET : TO_OFFSET;
+  const val = edge.unknownData?.[key];
+  return typeof val === "number" && Number.isFinite(val) ? val : void 0;
+}
+function setEdgeOffset(edge, end, offset) {
+  const key = end === "from" ? FROM_OFFSET : TO_OFFSET;
+  if (!edge.unknownData) edge.unknownData = {};
+  if (typeof offset === "number" && Number.isFinite(offset)) {
+    edge.unknownData[key] = Math.round(offset);
+  } else {
+    delete edge.unknownData[key];
+  }
+}
+function bboxOf(node) {
+  if (typeof node.getBBox === "function") return node.getBBox();
+  return {
+    minX: node.x,
+    minY: node.y,
+    maxX: node.x + node.width,
+    maxY: node.y + node.height
+  };
+}
+function isRealNode(node) {
+  return !!node && node.width > 0 && node.height > 0;
+}
+var EdgeAnchorsController = class {
+  constructor(plugin) {
+    this.plugin = plugin;
+    this.patchedProto = null;
+    this.origUpdatePath = null;
+    this.origGetBBox = null;
+    this.origUpdate = null;
+    this.patchedCanvases = /* @__PURE__ */ new Map();
+    this.canvasHandles = /* @__PURE__ */ new WeakMap();
+    this.previewDots = /* @__PURE__ */ new WeakMap();
+    this.lastPointerEvt = null;
+    this.activeDrag = null;
+    this.internalUpdating = false;
+    this.plugin.registerDomEvent(
+      document,
+      "pointermove",
+      (evt) => {
+        this.lastPointerEvt = evt;
+        if (this.activeDrag) this.onHandleMove(evt);
+      },
+      true
+    );
+    this.plugin.registerDomEvent(
+      document,
+      "pointerup",
+      (evt) => {
+        if (this.activeDrag) this.onHandleUp(evt);
+        this.hideAllPreviewDots();
+        window.requestAnimationFrame(() => this.syncAllHandles());
+      },
+      true
+    );
+    this.plugin.registerDomEvent(
+      document,
+      "click",
+      () => {
+        window.requestAnimationFrame(() => this.syncAllHandles());
+      },
+      true
+    );
+    this.plugin.registerDomEvent(
+      window,
+      "keydown",
+      (evt) => {
+        if (evt.key === "Escape" && this.activeDrag) {
+          evt.preventDefault();
+          evt.stopPropagation();
+          this.cancelHandleDrag();
+        }
+      },
+      true
+    );
+  }
+  attach(canvas) {
+    for (const edge of canvas.edges.values()) {
+      this.ensureProtoPatched(edge);
+      break;
+    }
+    if (!this.patchedCanvases.has(canvas)) {
+      const origAddEdge = canvas.addEdge.bind(canvas);
+      this.patchedCanvases.set(canvas, origAddEdge);
+      canvas.addEdge = (edge) => {
+        this.ensureProtoPatched(edge);
+        origAddEdge(edge);
+      };
+    }
+    for (const edge of canvas.edges.values()) {
+      if (edgeOffsetOf(edge, "from") !== void 0 || edgeOffsetOf(edge, "to") !== void 0) {
+        edge.updatePath?.();
+      }
+    }
+  }
+  detach(canvas) {
+    const origAddEdge = this.patchedCanvases.get(canvas);
+    if (origAddEdge) {
+      canvas.addEdge = origAddEdge;
+      this.patchedCanvases.delete(canvas);
+    }
+    this.previewDots.get(canvas)?.remove();
+    this.previewDots.delete(canvas);
+    const pair = this.canvasHandles.get(canvas);
+    if (pair) {
+      pair.from.remove();
+      pair.to.remove();
+      this.canvasHandles.delete(canvas);
+    }
+  }
+  destroy() {
+    if (this.activeDrag) this.cancelHandleDrag();
+    for (const canvas of Array.from(this.patchedCanvases.keys())) {
+      this.detach(canvas);
+    }
+    if (this.patchedProto) {
+      if (this.origUpdatePath) this.patchedProto.updatePath = this.origUpdatePath;
+      if (this.origGetBBox) this.patchedProto.getBBox = this.origGetBBox;
+      if (this.origUpdate) this.patchedProto.update = this.origUpdate;
+      this.patchedProto = null;
+      this.origUpdatePath = null;
+      this.origGetBBox = null;
+      this.origUpdate = null;
+    }
+    document.querySelectorAll(".jce-edge-handle").forEach((el) => el.remove());
+    document.querySelectorAll(".jce-anchor-dot").forEach((el) => el.remove());
+  }
+  // ------------------------------------------------------- prototype patch
+  ensureProtoPatched(edge) {
+    if (this.patchedProto) return;
+    const proto = Object.getPrototypeOf(edge);
+    if (!proto || typeof proto.updatePath !== "function") return;
+    this.patchedProto = proto;
+    this.origUpdatePath = proto.updatePath;
+    this.origGetBBox = proto.getBBox;
+    this.origUpdate = proto.update;
+    const controller = this;
+    proto.updatePath = function() {
+      controller.patchedUpdatePath(this);
+    };
+    proto.getBBox = function() {
+      return controller.patchedGetBBox(this);
+    };
+    proto.update = function(from, to) {
+      controller.patchedUpdate(this, from, to);
+    };
+  }
+  patchedGetBBox(edge) {
+    const fromPt = anchorPoint(
+      bboxOf(edge.from.node),
+      edge.from.side,
+      edgeOffsetOf(edge, "from")
+    );
+    const toPt = anchorPoint(
+      bboxOf(edge.to.node),
+      edge.to.side,
+      edgeOffsetOf(edge, "to")
+    );
+    return {
+      minX: Math.min(fromPt.x, toPt.x),
+      minY: Math.min(fromPt.y, toPt.y),
+      maxX: Math.max(fromPt.x, toPt.x),
+      maxY: Math.max(fromPt.y, toPt.y)
+    };
+  }
+  patchedUpdatePath(edge) {
+    const path = edge.path;
+    if (!path?.interaction || !path?.display) {
+      this.origUpdatePath?.call(edge);
+      return;
+    }
+    const { from, to } = edge;
+    const fromOffset = edgeOffsetOf(edge, "from");
+    const toOffset = edgeOffsetOf(edge, "to");
+    const a = anchorPoint(bboxOf(from.node), from.side, fromOffset);
+    const s = pushOut(a, from.side, EDGE_OUTSET);
+    const l = anchorPoint(bboxOf(to.node), to.side, toOffset);
+    const c = pushOut(l, to.side, EDGE_OUTSET);
+    const bezier = buildBezierPath(s, from.side, c, to.side);
+    edge.bezier = bezier;
+    let fromEnd = edge.fromLineEnd;
+    if (from.end !== fromEnd?.type) {
+      fromEnd?.el?.remove();
+      fromEnd = edge.fromLineEnd = edge.createEdgeEnd?.(from.end) ?? null;
+    }
+    let toEnd = edge.toLineEnd;
+    if (to.end !== toEnd?.type) {
+      toEnd?.el?.remove();
+      toEnd = edge.toLineEnd = edge.createEdgeEnd?.(to.end) ?? null;
+    }
+    let d = bezier.path;
+    if (fromEnd) {
+      fromEnd.el.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${ARROW_ROTATION[from.side]}deg)`;
+    } else {
+      d = `M${a.x} ${a.y} L${s.x} ${s.y} ${d}`;
+    }
+    if (toEnd) {
+      toEnd.el.style.transform = `translate(${l.x}px, ${l.y}px) rotate(${ARROW_ROTATION[to.side]}deg)`;
+    } else {
+      d = `${d} M${c.x} ${c.y} L${l.x} ${l.y}`;
+    }
+    path.interaction.setAttribute("d", d);
+    path.display.setAttribute("d", d);
+    if (edge.canvas) this.syncHandles(edge.canvas);
+  }
+  /**
+   * Intercept native `edge.update(from, to)` during native drag-to-connect
+   * (`canvas.canvasEl.is-connecting`) so dragging from a card's native dot or
+   * dragging an existing edge snaps smoothly anywhere along the target card's
+   * four edges — and aligns cleanly with the source card when dropped inside.
+   */
+  patchedUpdate(edge, from, to) {
+    const canvas = edge.canvas;
+    if (this.internalUpdating || !canvas || !canvas.canvasEl?.classList.contains("is-connecting") || !this.lastPointerEvt) {
+      this.origUpdate?.call(edge, from, to);
+      return;
+    }
+    const pos = canvas.posFromEvt(this.lastPointerEvt);
+    const snapCenter = !this.lastPointerEvt.altKey;
+    const fromIsVirtual = !isRealNode(from.node);
+    const toIsVirtual = !isRealNode(to.node);
+    let nextFrom = from;
+    let nextTo = to;
+    if (toIsVirtual) {
+      setEdgeOffset(edge, "to", void 0);
+      this.hidePreviewDot(canvas);
+    } else if (fromIsVirtual) {
+      setEdgeOffset(edge, "from", void 0);
+      this.hidePreviewDot(canvas);
+    } else {
+      const dFrom = Math.hypot(
+        pos.x - (from.node.x + from.node.width / 2),
+        pos.y - (from.node.y + from.node.height / 2)
+      );
+      const dTo = Math.hypot(
+        pos.x - (to.node.x + to.node.width / 2),
+        pos.y - (to.node.y + to.node.height / 2)
+      );
+      const movingEnd = from.node !== edge.from.node ? "from" : to.node !== edge.to.node ? "to" : dFrom < dTo ? "from" : "to";
+      if (movingEnd === "to") {
+        const bbox = bboxOf(to.node);
+        const snap = this.resolveTargetSnap(from.node, from.side, edgeOffsetOf(edge, "from"), bbox, pos, snapCenter);
+        nextTo = { ...to, side: snap.side };
+        setEdgeOffset(edge, "to", snap.offset);
+        this.showPreviewDot(canvas, snap.point, snap.snappedToCenter);
+      } else {
+        const bbox = bboxOf(from.node);
+        const snap = this.resolveTargetSnap(to.node, to.side, edgeOffsetOf(edge, "to"), bbox, pos, snapCenter);
+        nextFrom = { ...from, side: snap.side };
+        setEdgeOffset(edge, "from", snap.offset);
+        this.showPreviewDot(canvas, snap.point, snap.snappedToCenter);
+      }
+    }
+    this.origUpdate?.call(edge, nextFrom, nextTo);
+  }
+  /**
+   * Compute target side & offset when hovering a target card during native drag:
+   * - Near the card border (within 40px of an edge): snap freely to the exact
+   *   border position under the cursor (so the user can aim at any timeline line).
+   * - Deep inside the card body (>40px from all borders): pick the natural facing
+   *   side and align horizontally/vertically with the cursor (or opposite anchor
+   *   if the cursor is near the card's vertical/horizontal center).
+   */
+  resolveTargetSnap(otherNode, otherSide, otherOffset, targetBBox, pos, snapCenter) {
+    const nearest = nearestSideAndOffset(targetBBox, pos, { snapCenter });
+    const insideX = pos.x >= targetBBox.minX && pos.x <= targetBBox.maxX;
+    const insideY = pos.y >= targetBBox.minY && pos.y <= targetBBox.maxY;
+    if (insideX && insideY && nearest.dist > 40) {
+      const targetRect = {
+        x: targetBBox.minX,
+        y: targetBBox.minY,
+        width: targetBBox.maxX - targetBBox.minX,
+        height: targetBBox.maxY - targetBBox.minY
+      };
+      const otherRect = {
+        x: otherNode.x,
+        y: otherNode.y,
+        width: otherNode.width,
+        height: otherNode.height
+      };
+      const side = autoSides(targetRect, otherRect).from;
+      const otherAnchor = anchorPoint(bboxOf(otherNode), otherSide, otherOffset);
+      const aligned = offsetOnSide(targetBBox, side, otherAnchor, snapCenter);
+      return { side, ...aligned };
+    }
+    return {
+      side: nearest.side,
+      offset: nearest.offset,
+      snappedToCenter: nearest.snappedToCenter,
+      point: nearest.point
+    };
+  }
+  // ------------------------------------------------ focused endpoint handles
+  syncHandles(canvas) {
+    const focused = this.focusedEdgeOf(canvas);
+    if (!focused) {
+      const pair2 = this.canvasHandles.get(canvas);
+      if (pair2) {
+        pair2.edge = null;
+        pair2.from.hidden = true;
+        pair2.to.hidden = true;
+      }
+      return;
+    }
+    const pair = this.ensureHandlePair(canvas);
+    pair.edge = focused;
+    const fromPt = anchorPoint(
+      bboxOf(focused.from.node),
+      focused.from.side,
+      edgeOffsetOf(focused, "from")
+    );
+    const toPt = anchorPoint(
+      bboxOf(focused.to.node),
+      focused.to.side,
+      edgeOffsetOf(focused, "to")
+    );
+    pair.from.style.transform = `translate(${fromPt.x}px, ${fromPt.y}px)`;
+    pair.to.style.transform = `translate(${toPt.x}px, ${toPt.y}px)`;
+    pair.from.hidden = false;
+    pair.to.hidden = false;
+  }
+  syncAllHandles() {
+    for (const canvas of this.patchedCanvases.keys()) {
+      this.syncHandles(canvas);
+    }
+  }
+  focusedEdgeOf(canvas) {
+    if (this.activeDrag && this.activeDrag.canvas === canvas) {
+      return this.activeDrag.edge;
+    }
+    const sel = canvas.selection;
+    if (sel && sel.size === 1) {
+      const only = sel.values().next().value;
+      if (only && typeof only === "object" && "from" in only && "to" in only) {
+        return only;
+      }
+    }
+    for (const edge of canvas.edges.values()) {
+      if (edge.lineEndGroupEl?.classList.contains("is-focused")) {
+        return edge;
+      }
+    }
+    return null;
+  }
+  ensureHandlePair(canvas) {
+    let pair = this.canvasHandles.get(canvas);
+    if (pair && canvas.canvasEl.contains(pair.from) && canvas.canvasEl.contains(pair.to)) {
+      return pair;
+    }
+    const from = this.makeHandle(canvas, "from");
+    const to = this.makeHandle(canvas, "to");
+    canvas.canvasEl.appendChild(from);
+    canvas.canvasEl.appendChild(to);
+    pair = { from, to, edge: null };
+    this.canvasHandles.set(canvas, pair);
+    return pair;
+  }
+  makeHandle(canvas, end) {
+    const el = document.createElement("div");
+    el.className = "jce-edge-handle";
+    el.dataset.end = end;
+    el.hidden = true;
+    el.addEventListener("pointerdown", (evt) => {
+      if (evt.button !== 0) return;
+      const pair = this.canvasHandles.get(canvas);
+      const edge = pair?.edge;
+      if (!edge) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      evt.stopImmediatePropagation?.();
+      canvas.pushHistory?.(canvas.getData());
+      this.activeDrag = {
+        canvas,
+        edge,
+        end,
+        origFrom: { ...edge.from },
+        origTo: { ...edge.to },
+        origFromOffset: edgeOffsetOf(edge, "from"),
+        origToOffset: edgeOffsetOf(edge, "to"),
+        moved: false
+      };
+      canvas.wrapperEl.classList.add("jce-anchor-dragging");
+    });
+    el.addEventListener("dblclick", (evt) => {
+      const pair = this.canvasHandles.get(canvas);
+      const edge = pair?.edge;
+      if (!edge) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      canvas.pushHistory?.(canvas.getData());
+      setEdgeOffset(edge, end, void 0);
+      edge.updatePath?.();
+      canvas.markMoved?.(edge);
+      canvas.requestSave();
+      canvas.requestFrame();
+    });
+    return el;
+  }
+  onHandleMove(evt) {
+    const drag = this.activeDrag;
+    if (!drag) return;
+    const { canvas, edge, end } = drag;
+    const pos = canvas.posFromEvt(evt);
+    const snapCenter = !evt.altKey;
+    const fixedNode = end === "from" ? edge.to.node : edge.from.node;
+    const currentNode = end === "from" ? edge.from.node : edge.to.node;
+    const targetNode = this.findNodeNear(canvas, pos, fixedNode, currentNode);
+    const snap = nearestSideAndOffset(bboxOf(targetNode), pos, { snapCenter });
+    drag.moved = true;
+    setEdgeOffset(edge, end, snap.offset);
+    const nextFrom = end === "from" ? { node: targetNode, side: snap.side, end: edge.from.end } : edge.from;
+    const nextTo = end === "to" ? { node: targetNode, side: snap.side, end: edge.to.end } : edge.to;
+    this.internalUpdating = true;
+    try {
+      edge.update?.(nextFrom, nextTo);
+      edge.updatePath?.();
+    } finally {
+      this.internalUpdating = false;
+    }
+    this.showPreviewDot(canvas, snap.point, snap.snappedToCenter);
+    canvas.requestFrame();
+  }
+  onHandleUp(_evt) {
+    const drag = this.activeDrag;
+    if (!drag) return;
+    this.activeDrag = null;
+    drag.canvas.wrapperEl.classList.remove("jce-anchor-dragging");
+    this.hidePreviewDot(drag.canvas);
+    if (drag.moved) {
+      drag.canvas.requestSave();
+      drag.canvas.requestFrame();
+    }
+  }
+  cancelHandleDrag() {
+    const drag = this.activeDrag;
+    if (!drag) return;
+    this.activeDrag = null;
+    drag.canvas.wrapperEl.classList.remove("jce-anchor-dragging");
+    this.hidePreviewDot(drag.canvas);
+    setEdgeOffset(drag.edge, "from", drag.origFromOffset);
+    setEdgeOffset(drag.edge, "to", drag.origToOffset);
+    this.internalUpdating = true;
+    try {
+      drag.edge.update?.(drag.origFrom, drag.origTo);
+      drag.edge.updatePath?.();
+    } finally {
+      this.internalUpdating = false;
+    }
+    drag.canvas.requestFrame();
+  }
+  findNodeNear(canvas, pos, exclude, fallback) {
+    const snapDist = 28;
+    let best = null;
+    let bestDist = Infinity;
+    for (const node of canvas.nodes.values()) {
+      if (node === exclude || !isRealNode(node)) continue;
+      const b = bboxOf(node);
+      const inside = pos.x >= b.minX - snapDist && pos.x <= b.maxX + snapDist && pos.y >= b.minY - snapDist && pos.y <= b.maxY + snapDist;
+      if (!inside) continue;
+      const d = nearestSideAndOffset(b, pos, { snapCenter: false }).dist;
+      if (d < bestDist) {
+        bestDist = d;
+        best = node;
+      }
+    }
+    return best ?? fallback;
+  }
+  // ------------------------------------------------------ visual snap dot
+  showPreviewDot(canvas, pt, centered) {
+    let dot = this.previewDots.get(canvas);
+    if (!dot || !canvas.canvasEl.contains(dot)) {
+      dot = document.createElement("div");
+      dot.className = "jce-anchor-dot";
+      canvas.canvasEl.appendChild(dot);
+      this.previewDots.set(canvas, dot);
+    }
+    dot.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
+    dot.classList.toggle("is-centered", centered);
+    dot.hidden = false;
+  }
+  hidePreviewDot(canvas) {
+    const dot = this.previewDots.get(canvas);
+    if (dot) dot.hidden = true;
+  }
+  hideAllPreviewDots() {
+    for (const canvas of this.patchedCanvases.keys()) {
+      this.hidePreviewDot(canvas);
+    }
   }
 };
 
@@ -1037,7 +1683,9 @@ var Chrome = class {
         ].join(":")
       );
     }
-    for (const node of canvas.selection ?? []) parts.push(`s${node.id}`);
+    for (const item of canvas.selection ?? []) {
+      if (item?.id) parts.push(`s${item.id}`);
+    }
     parts.sort();
     return parts.join("|");
   }
@@ -1046,7 +1694,7 @@ var Chrome = class {
     for (const node of allNodes(canvas)) {
       this.paintNode(node);
     }
-    const mmSelected = Array.from(canvas.selection ?? []).some((n) => mmIds.has(n.id));
+    const mmSelected = Array.from(canvas.selection ?? []).some((n) => !!n?.id && mmIds.has(n.id));
     canvas.wrapperEl.classList.toggle("jce-mm-selected", mmSelected);
     const hidden = hiddenByFold(canvas);
     for (const node of allNodes(canvas)) {
@@ -1393,7 +2041,8 @@ var ConnectTool = class {
       return;
     }
     const sides = autoSides(this.from, node);
-    createEdge(this.canvas, this.from, node, sides);
+    const offsets = computeAlignedOffsets(this.from, sides.from, node, sides.to);
+    createEdge(this.canvas, this.from, node, sides, offsets);
     this.clearFrom();
   }
   clearFrom() {
@@ -3466,11 +4115,13 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       this.focus.sync(canvas);
       this.align.sync(canvas);
       this.minimap.sync(canvas);
+      this.anchors.syncHandles(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
     this.connect = new ConnectTool(this);
+    this.anchors = new EdgeAnchorsController(this);
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -3635,9 +4286,11 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
     this.focus.destroy();
     this.align.destroy();
     this.minimap.destroy();
+    this.anchors.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
+      this.anchors.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -3651,6 +4304,7 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       if (!canvas || seen.has(canvas)) continue;
       seen.add(canvas);
       this.chrome.attach(canvas);
+      this.anchors.attach(canvas);
       this.ensureToolbar(leaf, canvas);
       this.hookFrames(canvas);
       this.patchFrame(canvas);
@@ -3664,6 +4318,7 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       this.minimap.detach(canvas);
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
+      this.anchors.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }

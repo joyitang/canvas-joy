@@ -18,6 +18,7 @@ import {
   viewportCenter,
 } from "./bridge";
 import { AlignBar, applyAlignment } from "./align";
+import { EdgeAnchorsController } from "./anchors";
 import { Chrome } from "./chrome";
 import { CardCollapseController } from "./collapse";
 import { ConnectTool } from "./connect";
@@ -58,6 +59,7 @@ export default class CanvasEnhancePlugin extends Plugin {
   private zoomLod!: ZoomLodController;
   private align!: AlignBar;
   private minimap!: MinimapController;
+  private anchors!: EdgeAnchorsController;
   private keyScope: Scope | null = null;
   private prefs: { minimapOpen?: boolean } = {};
 
@@ -98,11 +100,13 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.focus.sync(canvas);
       this.align.sync(canvas);
       this.minimap.sync(canvas);
+      this.anchors.syncHandles(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
     this.connect = new ConnectTool(this);
+    this.anchors = new EdgeAnchorsController(this);
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -289,9 +293,11 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.focus.destroy();
     this.align.destroy();
     this.minimap.destroy();
+    this.anchors.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
+      this.anchors.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -307,6 +313,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       if (!canvas || seen.has(canvas)) continue;
       seen.add(canvas);
       this.chrome.attach(canvas);
+      this.anchors.attach(canvas);
       this.ensureToolbar(leaf, canvas);
       this.hookFrames(canvas);
       this.patchFrame(canvas);
@@ -320,6 +327,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.minimap.detach(canvas);
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
+      this.anchors.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }

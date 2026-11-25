@@ -71,12 +71,21 @@ export interface NodeLike {
 
 export interface EdgeLike {
   id: string;
+  canvas?: CanvasLike;
   from: { node: NodeLike; side: Side; end: EdgeEnd };
   to: { node: NodeLike; side: Side; end: EdgeEnd };
+  unknownData?: Record<string, unknown>;
+  bezier?: { from: Point; to: Point; cp1: Point; cp2: Point; path: string };
+  path?: { interaction: SVGPathElement; display: SVGPathElement };
+  fromLineEnd?: { el: SVGGElement; type: EdgeEnd } | null;
+  toLineEnd?: { el: SVGGElement; type: EdgeEnd } | null;
   lineGroupEl?: Element;
   lineEndGroupEl?: Element;
   getData(): RawEdge;
+  getBBox?(): BBox;
   render?(): void;
+  updatePath?(): void;
+  createEdgeEnd?(end: EdgeEnd): { el: SVGGElement; type: EdgeEnd } | null;
   destroy?(): void;
   update?(from: EdgeLike["from"], to: EdgeLike["to"]): void;
 }
@@ -113,6 +122,8 @@ export interface CanvasLike {
   panIntoView?(bbox: BBox, margin?: number): void;
   setViewport?(x: number, y: number, zoom: number): void;
   markViewportChanged?(): void;
+  markMoved?(item: unknown): void;
+  markDirty?(item: unknown): void;
   getContainingNodes?(bbox: BBox): NodeLike[];
   createTextNode(opts: {
     pos: Point;
@@ -234,7 +245,7 @@ export function nodeFromEvent(canvas: CanvasLike, evt: Event | Element): NodeLik
 export function isInsideCanvasUi(el: Element | null): boolean {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 
@@ -290,10 +301,19 @@ export function createEdge(
   canvas: CanvasLike,
   from: NodeLike,
   to: NodeLike,
-  sides: { from: Side; to: Side }
+  sides: { from: Side; to: Side },
+  offsets?: { fromOffset?: number; toOffset?: number }
 ): EdgeLike | undefined {
   const existing = findEdge(canvas, from.id, to.id);
   if (existing) return existing;
+
+  const extra: Record<string, unknown> = {};
+  if (typeof offsets?.fromOffset === "number" && Number.isFinite(offsets.fromOffset)) {
+    extra.jceFromOffset = Math.round(offsets.fromOffset);
+  }
+  if (typeof offsets?.toOffset === "number" && Number.isFinite(offsets.toOffset)) {
+    extra.jceToOffset = Math.round(offsets.toOffset);
+  }
 
   const ctor = edgeCtor(canvas);
   if (ctor) {
@@ -303,7 +323,11 @@ export function createEdge(
       { node: from, side: sides.from, end: "none" },
       { node: to, side: sides.to, end: "arrow" }
     );
+    if (Object.keys(extra).length > 0) {
+      edge.unknownData = { ...(edge.unknownData ?? {}), ...extra };
+    }
     canvas.addEdge(edge);
+    canvas.markMoved?.(edge);
     edge.render?.();
     commit(canvas);
     return edge;
@@ -319,6 +343,7 @@ export function createEdge(
     toNode: to.id,
     toSide: sides.to,
     toEnd: "arrow",
+    ...extra,
   } as RawEdge);
   canvas.setData(data);
   const made = canvas.edges.get(id);
@@ -345,7 +370,9 @@ export function deleteNodes(canvas: CanvasLike, ids: Iterable<string>): void {
 }
 
 export function selectedNodes(canvas: CanvasLike): NodeLike[] {
-  return Array.from(canvas.selection ?? []);
+  return Array.from(canvas.selection ?? []).filter(
+    (item): item is NodeLike => !!item && typeof item === "object" && "nodeEl" in item && !!item.nodeEl
+  );
 }
 
 export function findEditingNode(canvas: CanvasLike): NodeLike | undefined {

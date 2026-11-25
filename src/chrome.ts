@@ -172,7 +172,9 @@ export class Chrome {
         ].join(":")
       );
     }
-    for (const node of canvas.selection ?? []) parts.push(`s${node.id}`);
+    for (const item of canvas.selection ?? []) {
+      if (item?.id) parts.push(`s${item.id}`);
+    }
     parts.sort();
     return parts.join("|");
   }
@@ -185,7 +187,7 @@ export class Chrome {
     }
 
     // PRD MM-08: no native selection menu while a mindmap node is selected.
-    const mmSelected = Array.from(canvas.selection ?? []).some((n) => mmIds.has(n.id));
+    const mmSelected = Array.from(canvas.selection ?? []).some((n) => !!n?.id && mmIds.has(n.id));
     canvas.wrapperEl.classList.toggle("jce-mm-selected", mmSelected);
 
     // Folding: hide descendants, mark folded parents.

@@ -15,6 +15,7 @@ import {
   isInsideCanvasUi,
   nodeFromEvent,
 } from "./bridge";
+import { computeAlignedOffsets } from "./anchors";
 
 export class ConnectTool {
   private canvas: CanvasLike | null = null;
@@ -72,7 +73,8 @@ export class ConnectTool {
     }
 
     const sides = autoSides(this.from, node);
-    createEdge(this.canvas, this.from, node, sides);
+    const offsets = computeAlignedOffsets(this.from, sides.from, node, sides.to);
+    createEdge(this.canvas, this.from, node, sides, offsets);
     this.clearFrom();
   }
 
