@@ -36,6 +36,8 @@ type Handlers = {
   groupSelection: (canvas: CanvasLike, fallbackNode?: NodeLike) => void;
   alignSelection: (canvas: CanvasLike, op: AlignOp) => void;
   toggleCardFold: (canvas: CanvasLike, nodeId: string) => void;
+  setCardTime: (canvas: CanvasLike, node: NodeLike) => void;
+  chronosFocusNode: (canvas: CanvasLike, node: NodeLike) => void;
 };
 
 const PALETTE: { id: string; label: string; swatch: string }[] = [
@@ -220,6 +222,21 @@ export class ContextMenus {
           .setTitle(menuLabel(MENU.groupSection))
           .setIcon("frame")
           .onClick(() => this.handlers.groupSelection(canvas, node))
+      );
+    }
+
+    if (!isGroupNode(node)) {
+      menu.addItem((row) =>
+        row
+          .setTitle(menuLabel(MENU.chronosFocus))
+          .setIcon("hourglass")
+          .onClick(() => this.handlers.chronosFocusNode(canvas, node))
+      );
+      menu.addItem((row) =>
+        row
+          .setTitle(menuLabel(MENU.setTime))
+          .setIcon("calendar")
+          .onClick(() => this.handlers.setCardTime(canvas, node))
       );
     }
 

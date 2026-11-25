@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => CanvasEnhancePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/bridge.ts
 var edgeCtors = /* @__PURE__ */ new WeakMap();
@@ -93,12 +93,17 @@ function nodeFromEvent(canvas, evt) {
 function isInsideCanvasUi(el) {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-chronos-bar, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 function commit(canvas) {
   canvas.requestSave();
   canvas.requestFrame();
+}
+function setNodeData(canvas, node, patch) {
+  const next = { ...node.getData(), ...patch };
+  node.setData(next);
+  canvas.requestSave();
 }
 function edgeCtor(canvas) {
   const cached = edgeCtors.get(canvas);
@@ -200,6 +205,7 @@ var TOOLS = {
 };
 var SEARCH_TOOL = { id: "search", zh: "\u641C\u7D22", en: "Search", key: "\u2318F" };
 var MINIMAP_TOOL = { id: "minimap", zh: "\u5C0F\u5730\u56FE", en: "Minimap" };
+var CHRONOS_TOOL = { id: "chronos", zh: "\u65F6\u95F4\u8F74", en: "Chronos" };
 var ALIGN_OPS = {
   left: { zh: "\u5DE6\u5BF9\u9F50", en: "Align left" },
   centerX: { zh: "\u6C34\u5E73\u5C45\u4E2D", en: "Align horizontal centers" },
@@ -222,7 +228,9 @@ var MENU = {
   groupSection: { zh: "\u6253\u5305\u8FDB\u5206\u533A", en: "Group into section" },
   align: { zh: "\u5BF9\u9F50\u4E0E\u5206\u5E03", en: "Align & distribute" },
   collapseCard: { zh: "\u6298\u53E0", en: "Collapse" },
-  expandCard: { zh: "\u5C55\u5F00", en: "Expand" }
+  expandCard: { zh: "\u5C55\u5F00", en: "Expand" },
+  setTime: { zh: "\u6307\u5B9A\u5E74\u4EFD", en: "Set time" },
+  chronosFocus: { zh: "\u65F6\u95F4\u8F74\u67E5\u770B", en: "View in Chronos" }
 };
 var DEFAULTS = {
   noteCard: "Note Card",
@@ -1679,6 +1687,8 @@ var Chrome = class {
           isEditing(node) ? "e" : "",
           node.getData().jceFold === true ? "f" : "",
           isCardFolded(node) ? `cf${foldKidsOf(node).length}` : "",
+          String(node.getData().jceTime ?? ""),
+          String(node.nodeEl?.querySelector(".markdown-preview-view")?.childElementCount ?? 0),
           `${text.length}:${text.slice(0, 48)}`
         ].join(":")
       );
@@ -1762,8 +1772,1022 @@ var Chrome = class {
   }
 };
 
-// src/collapse.ts
+// src/chronos.ts
 var import_obsidian2 = require("obsidian");
+
+// src/chronos-parser.ts
+var TIME_OVERRIDE = "jceTime";
+var DURATION_PREFIX_RE = /(?:长达|持续|历时|在位|享年|共计|共|达|超过|将近|近|约|大约|前后|不足|逾|余)\s*$/;
+function centuryToRange(century, bc) {
+  const c = Math.max(1, Math.floor(century));
+  if (bc) {
+    return { start: -c * 100, end: -(c - 1) * 100 - 1 };
+  }
+  return { start: (c - 1) * 100 + 1, end: c * 100 };
+}
+function normalizeRange(a, b) {
+  return a <= b ? { start: a, end: b } : { start: b, end: a };
+}
+function isPlausibleYear(y, hasExplicitEraOrUnit) {
+  if (!Number.isFinite(y) || y === 0) return false;
+  if (y < -4e3 || y > 2200) return false;
+  if (!hasExplicitEraOrUnit && y > 0 && y < 100) return false;
+  return true;
+}
+function parseDateCore(core, allowBareNumber) {
+  const s = core.trim();
+  if (!s) return null;
+  const enCentRe = /^(\d{1,2})(?:st|nd|rd|th)\s*(?:[-–—~]\s*(\d{1,2})(?:st|nd|rd|th)\s*)?(?:century|centuries)(?:\s*(BCE|BC|CE|AD))?$/i;
+  const ecm = s.match(enCentRe);
+  if (ecm) {
+    const c1 = Number(ecm[1]);
+    const c2Str = ecm[2];
+    const era = (ecm[3] ?? "").toUpperCase();
+    const bc = era === "BC" || era === "BCE";
+    if (c1 < 1 || c1 > 30) return null;
+    const r1 = centuryToRange(c1, bc);
+    if (!c2Str) return { start: r1.start, end: r1.end, explicitEra: true };
+    const c2 = Number(c2Str);
+    if (c2 < 1 || c2 > 30) return null;
+    const r2 = centuryToRange(c2, bc);
+    return { ...normalizeRange(Math.min(r1.start, r2.start), Math.max(r1.end, r2.end)), explicitEra: true };
+  }
+  const enYearRe = /^(?:(AD|CE)\s*)?(\d{1,4})\s*(?:(BCE|BC|CE|AD)\s*)?(?:[-–—~]\s*(?:(AD|CE)\s*)?(\d{1,4})\s*(BCE|BC|CE|AD)?)?$/i;
+  const eym = s.match(enYearRe);
+  if (eym && (eym[1] || eym[3] || eym[4] || eym[6])) {
+    const pre1 = (eym[1] ?? "").toUpperCase();
+    const n1 = Number(eym[2]);
+    const post1 = (eym[3] ?? "").toUpperCase();
+    const pre2 = (eym[4] ?? "").toUpperCase();
+    const n2Str = eym[5];
+    const post2 = (eym[6] ?? "").toUpperCase();
+    const era1 = pre1 || post1;
+    const era2 = pre2 || post2;
+    if (!n2Str) {
+      const bc = era1 === "BC" || era1 === "BCE";
+      const y = bc ? -n1 : n1;
+      if (!isPlausibleYear(y, true)) return null;
+      return { start: y, end: y, explicitEra: true };
+    }
+    const n2 = Number(n2Str);
+    const bc1 = era1 ? era1 === "BC" || era1 === "BCE" : era2 === "BC" || era2 === "BCE";
+    const bc2 = era2 ? era2 === "BC" || era2 === "BCE" : bc1 && n2 < n1;
+    const y1 = bc1 ? -n1 : n1;
+    const y2 = bc2 ? -n2 : n2;
+    if (!isPlausibleYear(y1, true) || !isPlausibleYear(y2, true)) return null;
+    return { ...normalizeRange(y1, y2), explicitEra: true };
+  }
+  const centRe = /^(公元前|公元|前)?\s*(\d{1,2})\s*(?:[-–—~～至到]\s*(公元前|公元|前)?\s*(\d{1,2})\s*)?世纪$/;
+  const cm = s.match(centRe);
+  if (cm) {
+    const era1 = cm[1] ?? "";
+    const c1 = Number(cm[2]);
+    const era2 = cm[3] ?? "";
+    const c2Str = cm[4];
+    if (c1 < 1 || c1 > 30) return null;
+    const bc1 = era1.includes("\u524D");
+    const r1 = centuryToRange(c1, bc1);
+    if (!c2Str) {
+      return { start: r1.start, end: r1.end, explicitEra: true };
+    }
+    const c2 = Number(c2Str);
+    if (c2 < 1 || c2 > 30) return null;
+    const bc2 = era2 ? era2.includes("\u524D") : bc1;
+    const r2 = centuryToRange(c2, bc2);
+    const norm = normalizeRange(Math.min(r1.start, r2.start), Math.max(r1.end, r2.end));
+    return { ...norm, explicitEra: true };
+  }
+  const rangeRe = /^(公元前|公元|前)?\s*(\d{1,4})\s*年?\s*[-–—~～至到]\s*(公元前|公元|前)?\s*(\d{1,4})\s*(年)?$/;
+  const rm = s.match(rangeRe);
+  if (rm) {
+    const era1 = rm[1] ?? "";
+    const n1 = Number(rm[2]);
+    const era2 = rm[3] ?? "";
+    const n2 = Number(rm[4]);
+    const hasYearUnit = Boolean(rm[5]);
+    const explicitEra = Boolean(era1 || era2);
+    if (!allowBareNumber && !explicitEra && !hasYearUnit) return null;
+    const bc1 = era1.includes("\u524D");
+    const bc2 = era2 ? era2.includes("\u524D") : bc1 && n2 < n1;
+    const y1 = bc1 ? -n1 : n1;
+    const y2 = bc2 ? -n2 : n2;
+    if (!isPlausibleYear(y1, explicitEra || hasYearUnit) || !isPlausibleYear(y2, explicitEra || hasYearUnit)) {
+      return null;
+    }
+    if (!explicitEra && !hasYearUnit && Math.max(Math.abs(y1), Math.abs(y2)) < 100) {
+      return null;
+    }
+    return { ...normalizeRange(y1, y2), explicitEra };
+  }
+  const singleRe = /^(公元前|公元|前)?\s*(\d{1,4})\s*(年)?$/;
+  const sm = s.match(singleRe);
+  if (sm) {
+    const era = sm[1] ?? "";
+    const n = Number(sm[2]);
+    const hasYearUnit = Boolean(sm[3]);
+    const explicitEra = Boolean(era);
+    if (!allowBareNumber && !explicitEra && !hasYearUnit) return null;
+    const y = era.includes("\u524D") ? -n : n;
+    if (!isPlausibleYear(y, explicitEra || hasYearUnit)) return null;
+    return { start: y, end: y, explicitEra };
+  }
+  return null;
+}
+var DATE_TOKEN_RE = new RegExp(
+  [
+    // 1. Parenthesized (Chinese or English): (公元532-537), （843）, (AD 138–161), (31 BC), (1204–1261), (5th–7th century)
+    String.raw`([（(]\s*(?:约\s*|c\.\s*)?(?:(?:公元前|公元|前|AD|CE)\s*)?\d{1,4}(?:st|nd|rd|th)?\s*(?:年\s*|BCE\s*|BC\s*|CE\s*|AD\s*)?(?:[-–—~～至到]\s*(?:(?:公元前|公元|前|AD|CE)\s*)?\d{1,4}(?:st|nd|rd|th)?\s*)?(?:年|世纪|centuries|century|BCE|BC|CE|AD)?(?:\s*(?:BCE|BC|CE|AD|在位|年间|左右|前后|期间))?\s*[)）])`,
+    // 2. Explicit Chinese century outside parens: 公元前5-前3世纪, 5-7世纪, 8世纪
+    String.raw`((?:公元前|公元|前)?\s*\d{1,2}\s*(?:[-–—~～至到]\s*(?:公元前|公元|前)?\s*\d{1,2}\s*)?世纪)`,
+    // 3. Explicit English century outside parens: 2nd century BC, 5th–7th century, 3rd century
+    String.raw`(\b\d{1,2}(?:st|nd|rd|th)\s*(?:[-–—~]\s*\d{1,2}(?:st|nd|rd|th)\s*)?(?:centuries|century)(?:\s*(?:BCE|BC|CE|AD)\b)?)`,
+    // 4. Explicit English AD/CE/BC/BCE year or range: AD 532–537, 597–586 BC, 721 BC, AD 1, 476 AD
+    String.raw`(\b(?:AD|CE)\s+\d{1,4}(?:\s*[-–—~]\s*(?:(?:AD|CE)\s+)?\d{1,4})?\b|\b\d{1,4}\s*[-–—~]\s*\d{1,4}\s*(?:BCE|BC|CE|AD)\b|\b\d{1,4}\s*(?:BCE|BC|CE|AD)\b)`,
+    // 5. Explicit Chinese year or year range outside parens:
+    //    - with era prefix: 公元前221-前207年, 公元800年, 公元前49
+    //    - or with trailing 年: 1054年, 306-337年, 751年
+    String.raw`((?:公元前|公元)\s*\d{1,4}\s*(?:年\s*)?(?:[-–—~～至到]\s*(?:(?:公元前|公元|前)\s*)?\d{1,4}\s*)?年?|\b\d{1,4}\s*[-–—~～至到]\s*(?:(?:公元前|公元|前)\s*)?\d{1,4}\s*年|(?<![\d.])\d{1,4}\s*年)`
+  ].join("|"),
+  "gi"
+);
+function parseDatesFromText(text) {
+  if (!text) return [];
+  const results = [];
+  DATE_TOKEN_RE.lastIndex = 0;
+  let m;
+  while ((m = DATE_TOKEN_RE.exec(text)) !== null) {
+    const raw = m[0];
+    const index = m.index;
+    const isParen = Boolean(m[1]);
+    let inner = raw;
+    if (isParen) {
+      inner = raw.slice(1, -1).trim().replace(/^(?:约|c\.)\s*/i, "").replace(/\s*(?:在位|年间|左右|前后|期间)$/, "").trim();
+    }
+    const parsed = parseDateCore(inner, isParen);
+    if (!parsed) continue;
+    if (!isParen && !parsed.explicitEra) {
+      const lookbehind = text.slice(Math.max(0, index - 8), index);
+      if (DURATION_PREFIX_RE.test(lookbehind)) continue;
+      if (parsed.start === parsed.end && parsed.start > 0 && parsed.start < 100) {
+        continue;
+      }
+    }
+    results.push({
+      start: parsed.start,
+      end: parsed.end,
+      raw,
+      index,
+      length: raw.length
+    });
+  }
+  return results;
+}
+function parseManualTime(raw) {
+  if (!raw || !raw.trim()) return [];
+  const parts = raw.split(/[,，;；、]+/);
+  const out = [];
+  for (const part of parts) {
+    const token = part.trim();
+    if (!token) continue;
+    const negRange = token.match(/^(-?\d{1,4})\s*(?:\.\.|~|～|至|到)\s*(-?\d{1,4})$/);
+    if (negRange) {
+      const a = Number(negRange[1]);
+      const b = Number(negRange[2]);
+      if (isPlausibleYear(a, true) && isPlausibleYear(b, true)) {
+        const norm = normalizeRange(a, b);
+        out.push({ ...norm, raw: token, index: 0, length: token.length });
+        continue;
+      }
+    }
+    const negSingle = token.match(/^(-\d{1,4})$/);
+    if (negSingle) {
+      const y = Number(negSingle[1]);
+      if (isPlausibleYear(y, true)) {
+        out.push({ start: y, end: y, raw: token, index: 0, length: token.length });
+        continue;
+      }
+    }
+    const parsed = parseDateCore(token, true);
+    if (parsed) {
+      out.push({ start: parsed.start, end: parsed.end, raw: token, index: 0, length: token.length });
+    }
+  }
+  return out;
+}
+function rangesIntersect(ranges, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd);
+  const hi = Math.max(selStart, selEnd);
+  for (const r of ranges) {
+    if (r.start <= hi && r.end >= lo) return true;
+  }
+  return false;
+}
+function formatYear(year, withUnit = false) {
+  const y = Math.round(year);
+  if (y < 0) return withUnit ? `\u524D${Math.abs(y)}\u5E74` : `\u524D${Math.abs(y)}`;
+  return withUnit ? `${y}\u5E74` : `${y}`;
+}
+
+// src/chronos.ts
+var SKIP_TAGS = /* @__PURE__ */ new Set(["CODE", "PRE", "SCRIPT", "STYLE", "TEXTAREA", "INPUT", "BUTTON"]);
+function manualTimeOf(node) {
+  const val = node.getData()[TIME_OVERRIDE];
+  return typeof val === "string" ? val : "";
+}
+function nodeTimeRanges(node) {
+  const manual = manualTimeOf(node).trim();
+  if (manual) return parseManualTime(manual);
+  return parseDatesFromText(nodeTextContent(node));
+}
+var ChronosController = class {
+  constructor(plugin, opts) {
+    this.plugin = plugin;
+    this.states = /* @__PURE__ */ new Map();
+    this.onActiveChange = opts?.onActiveChange;
+    this.plugin.registerDomEvent(
+      window,
+      "click",
+      (evt) => this.onWindowClick(evt),
+      true
+    );
+    this.plugin.registerDomEvent(
+      window,
+      "dblclick",
+      (evt) => this.onWindowDblClick(evt),
+      true
+    );
+    this.plugin.registerDomEvent(
+      document,
+      "pointermove",
+      (evt) => this.onPointerMove(evt),
+      true
+    );
+    this.plugin.registerDomEvent(
+      document,
+      "pointerup",
+      () => this.onPointerUp(),
+      true
+    );
+  }
+  isActive(canvas) {
+    return this.states.get(canvas)?.active === true;
+  }
+  toggle(canvas) {
+    if (this.isActive(canvas)) {
+      this.close(canvas);
+      return false;
+    }
+    this.open(canvas);
+    return true;
+  }
+  open(canvas) {
+    const state = this.ensureState(canvas);
+    state.active = true;
+    this.recompute(canvas, state, true);
+    this.ensureBar(canvas, state);
+    this.applyAll(canvas, state);
+    this.onActiveChange?.(canvas, true);
+  }
+  close(canvas) {
+    const state = this.states.get(canvas);
+    if (!state || !state.active) return;
+    state.active = false;
+    state.focusedEvent = null;
+    state.dragging = null;
+    state.barEl?.remove();
+    state.barEl = null;
+    this.clearVisuals(canvas);
+    this.onActiveChange?.(canvas, false);
+  }
+  /** Focus Chronos onto a specific event range (opens Chronos if closed). */
+  focusEvent(canvas, nodeId, start, end, raw) {
+    const wasActive = this.isActive(canvas);
+    const state = this.ensureState(canvas);
+    state.active = true;
+    this.recompute(canvas, state, !wasActive);
+    this.ensureBar(canvas, state);
+    if (state.focusedEvent && state.focusedEvent.nodeId === nodeId && state.focusedEvent.start === start && state.focusedEvent.end === end && state.focusedEvent.raw === raw) {
+      this.resetRange(canvas, state);
+      return;
+    }
+    state.focusedEvent = { nodeId, start, end, raw };
+    this.applyFocusedWindow(state);
+    this.applyAll(canvas, state);
+    if (!wasActive) this.onActiveChange?.(canvas, true);
+  }
+  /** Focus Chronos onto a whole node's detected/manual time range (from context menu). */
+  focusNode(canvas, node) {
+    const ranges = nodeTimeRanges(node);
+    if (!ranges.length) {
+      this.open(canvas);
+      return;
+    }
+    const start = Math.min(...ranges.map((r) => r.start));
+    const end = Math.max(...ranges.map((r) => r.end));
+    this.focusEvent(canvas, node.id, start, end, ranges[0].raw);
+  }
+  /** Open modal to manually specify or clear `jceTime` on a node. */
+  openSetTimeModal(canvas, node) {
+    new SetTimeModal(this.plugin.app, node, (value) => {
+      const next = { ...node.getData() };
+      if (value) next[TIME_OVERRIDE] = value;
+      else delete next[TIME_OVERRIDE];
+      setNodeData(canvas, node, next);
+      commit(canvas);
+      this.sync(canvas);
+    }).open();
+  }
+  /** Called on canvas frame/DOM updates to keep dates, underlines, and filter fresh. */
+  sync(canvas) {
+    const state = this.states.get(canvas);
+    if (!state || !state.active) return;
+    this.recompute(canvas, state, false);
+    this.ensureBar(canvas, state);
+    this.applyAll(canvas, state);
+  }
+  detach(canvas) {
+    this.close(canvas);
+    this.states.delete(canvas);
+  }
+  destroy() {
+    for (const canvas of Array.from(this.states.keys())) {
+      this.close(canvas);
+    }
+    this.states.clear();
+  }
+  // ----------------------------------------------------------- state & model
+  ensureState(canvas) {
+    let state = this.states.get(canvas);
+    if (!state) {
+      state = {
+        active: false,
+        minYear: 0,
+        maxYear: 1e3,
+        selStart: 0,
+        selEnd: 1e3,
+        hasDates: false,
+        window30: true,
+        focusedEvent: null,
+        nodeRanges: /* @__PURE__ */ new Map(),
+        barEl: null,
+        dragging: null
+      };
+      this.states.set(canvas, state);
+    }
+    return state;
+  }
+  recompute(canvas, state, resetSelection) {
+    const prevMin = state.minYear;
+    const prevMax = state.maxYear;
+    const wasFull = state.selStart <= prevMin && state.selEnd >= prevMax;
+    const map = /* @__PURE__ */ new Map();
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const node of allNodes(canvas)) {
+      if (isGroupNode(node)) continue;
+      const ranges = nodeTimeRanges(node);
+      if (ranges.length > 0) {
+        map.set(node.id, ranges);
+        for (const r of ranges) {
+          if (r.start < minY) minY = r.start;
+          if (r.end > maxY) maxY = r.end;
+        }
+      }
+    }
+    state.nodeRanges = map;
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      state.hasDates = false;
+      state.minYear = 0;
+      state.maxYear = 1e3;
+      state.selStart = 0;
+      state.selEnd = 1e3;
+      return;
+    }
+    if (minY === maxY) {
+      minY -= 30;
+      maxY += 30;
+    }
+    state.hasDates = true;
+    state.minYear = minY;
+    state.maxYear = maxY;
+    if (resetSelection || wasFull) {
+      state.selStart = minY;
+      state.selEnd = maxY;
+      state.focusedEvent = null;
+    } else if (state.focusedEvent) {
+      this.applyFocusedWindow(state);
+    } else {
+      state.selStart = clamp(state.selStart, minY, maxY);
+      state.selEnd = clamp(state.selEnd, state.selStart, maxY);
+    }
+  }
+  applyFocusedWindow(state) {
+    const ev = state.focusedEvent;
+    if (!ev || !state.hasDates) return;
+    const pad = state.window30 ? 30 : 0;
+    state.selStart = clamp(ev.start - pad, state.minYear, state.maxYear);
+    state.selEnd = clamp(ev.end + pad, state.selStart, state.maxYear);
+  }
+  resetRange(canvas, state) {
+    state.focusedEvent = null;
+    state.selStart = state.minYear;
+    state.selEnd = state.maxYear;
+    this.applyAll(canvas, state);
+  }
+  // ----------------------------------------------------------- visual apply
+  applyAll(canvas, state) {
+    canvas.wrapperEl.classList.add("jce-chronos-mode");
+    const isFullRange = !state.hasDates || state.selStart <= state.minYear && state.selEnd >= state.maxYear;
+    const matchedIds = /* @__PURE__ */ new Set();
+    let datedTotal = 0;
+    let datedMatched = 0;
+    for (const node of allNodes(canvas)) {
+      if (isGroupNode(node)) continue;
+      const ranges = state.nodeRanges.get(node.id);
+      const hasDate = !!ranges && ranges.length > 0;
+      if (hasDate) datedTotal++;
+      let matched;
+      if (isFullRange) {
+        matched = true;
+        if (hasDate) datedMatched++;
+      } else if (hasDate) {
+        matched = rangesIntersect(ranges, state.selStart, state.selEnd);
+        if (matched) datedMatched++;
+      } else {
+        matched = true;
+      }
+      if (matched) matchedIds.add(node.id);
+      this.decorateNodeDates(node, state);
+      this.applyBlockFiltering(node, state, isFullRange, matched);
+    }
+    for (const node of allNodes(canvas)) {
+      if (!isGroupNode(node)) continue;
+      if (isFullRange) {
+        matchedIds.add(node.id);
+      } else {
+        const kids = nodesInsideGroup(canvas, node);
+        if (kids.some((k) => matchedIds.has(k.id))) {
+          matchedIds.add(node.id);
+        }
+      }
+    }
+    for (const node of allNodes(canvas)) {
+      const el = node.nodeEl;
+      if (!el) continue;
+      const hit = matchedIds.has(node.id);
+      el.classList.toggle("jce-chronos-match", hit);
+      el.classList.toggle("jce-chronos-dim", !hit);
+    }
+    for (const edge of allEdges(canvas)) {
+      const keep = matchedIds.has(edge.from.node.id) && matchedIds.has(edge.to.node.id);
+      edge.lineGroupEl?.classList.toggle("jce-chronos-edge-dim", !keep);
+      edge.lineEndGroupEl?.classList.toggle("jce-chronos-edge-dim", !keep);
+    }
+    this.renderBar(canvas, state, datedMatched, datedTotal, isFullRange);
+  }
+  clearVisuals(canvas) {
+    canvas.wrapperEl.classList.remove("jce-chronos-mode", "jce-chronos-only");
+    for (const node of allNodes(canvas)) {
+      node.nodeEl?.classList.remove("jce-chronos-match", "jce-chronos-dim");
+      if (node.nodeEl) {
+        clearBlockClasses(node.nodeEl);
+        unwrapDates(node.nodeEl);
+      }
+    }
+    for (const edge of allEdges(canvas)) {
+      edge.lineGroupEl?.classList.remove("jce-chronos-edge-dim");
+      edge.lineEndGroupEl?.classList.remove("jce-chronos-edge-dim");
+    }
+  }
+  // --------------------------------------------------- preview date underline
+  decorateNodeDates(node, state) {
+    const el = node.nodeEl;
+    if (!el) return;
+    if (isEditing(node)) {
+      unwrapDates(el);
+      return;
+    }
+    const content = el.querySelector(".markdown-preview-view") ?? el.querySelector(".canvas-node-content");
+    if (!content) return;
+    const existingSpans = content.querySelectorAll(".jce-chronos-date");
+    const sig = nodeTextContent(node);
+    if (content.dataset.jceChronosSig === sig && existingSpans.length > 0) {
+      this.updateActiveDateSpans(existingSpans, node.id, state.focusedEvent);
+      return;
+    }
+    unwrapDates(content);
+    content.dataset.jceChronosSig = sig;
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+      acceptNode(textNode) {
+        const parent = textNode.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        if (parent.closest(
+          ".jce-chronos-date, .jce-collapsed-bar, .jce-lod-overlay, .cm-editor, a"
+        )) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        if (!textNode.nodeValue || textNode.nodeValue.trim().length < 2) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const textNodes = [];
+    let current = walker.nextNode();
+    while (current) {
+      textNodes.push(current);
+      current = walker.nextNode();
+    }
+    for (const textNode of textNodes) {
+      const value = textNode.nodeValue ?? "";
+      const matches = parseDatesFromText(value);
+      if (!matches.length) continue;
+      const frag = document.createDocumentFragment();
+      let cursor = 0;
+      for (const m of matches) {
+        if (m.index > cursor) {
+          frag.appendChild(document.createTextNode(value.slice(cursor, m.index)));
+        }
+        const span = document.createElement("span");
+        span.className = "jce-chronos-date";
+        span.dataset.nodeId = node.id;
+        span.dataset.start = String(m.start);
+        span.dataset.end = String(m.end);
+        span.dataset.raw = m.raw;
+        span.textContent = m.raw;
+        if (state.focusedEvent && state.focusedEvent.nodeId === node.id && state.focusedEvent.start === m.start && state.focusedEvent.end === m.end && state.focusedEvent.raw === m.raw) {
+          span.classList.add("is-active");
+        }
+        frag.appendChild(span);
+        cursor = m.index + m.length;
+      }
+      if (cursor < value.length) {
+        frag.appendChild(document.createTextNode(value.slice(cursor)));
+      }
+      textNode.parentNode?.replaceChild(frag, textNode);
+    }
+  }
+  updateActiveDateSpans(spans, nodeId, focused) {
+    spans.forEach((span) => {
+      const active = !!focused && focused.nodeId === nodeId && Number(span.dataset.start) === focused.start && Number(span.dataset.end) === focused.end && span.dataset.raw === focused.raw;
+      span.classList.toggle("is-active", active);
+    });
+  }
+  /**
+   * Intra-card block filtering for multi-period cards:
+   * Only kicks in when a matched card spans MULTIPLE periods (contains at least
+   * one date inside `[selStart, selEnd]` AND at least one date outside it).
+   * Single-period cards (e.g. a card whose title is "5-7世纪" with explanatory
+   * bullets below) stay 100% clear so their body text is never mistakenly dimmed.
+   */
+  applyBlockFiltering(node, state, isFullRange, cardMatched) {
+    const el = node.nodeEl;
+    if (!el) return;
+    clearBlockClasses(el);
+    if (isFullRange || !cardMatched || isEditing(node)) return;
+    const content = el.querySelector(".markdown-preview-view") ?? el.querySelector(".canvas-node-content");
+    if (!content) return;
+    const allSpans = Array.from(content.querySelectorAll(".jce-chronos-date"));
+    if (allSpans.length < 2) return;
+    let hasInRange = false;
+    let hasOutRange = false;
+    const spanHit = /* @__PURE__ */ new Map();
+    for (const span of allSpans) {
+      const s = Number(span.dataset.start);
+      const e = Number(span.dataset.end);
+      const hit = Number.isFinite(s) && Number.isFinite(e) && rangesIntersect([{ start: s, end: e }], state.selStart, state.selEnd);
+      spanHit.set(span, hit);
+      if (hit) hasInRange = true;
+      else hasOutRange = true;
+    }
+    if (!hasInRange || !hasOutRange) return;
+    const listItems = Array.from(content.querySelectorAll("li"));
+    const topParagraphs = Array.from(content.querySelectorAll("p")).filter(
+      (p) => !p.closest("li")
+    );
+    const blocks = [...listItems, ...topParagraphs];
+    if (blocks.length < 2) return;
+    const ownStatus = /* @__PURE__ */ new Map();
+    for (const block of blocks) {
+      const ownSpans = Array.from(block.querySelectorAll(".jce-chronos-date")).filter(
+        (sp) => sp.closest("li, p") === block
+      );
+      if (!ownSpans.length) {
+        ownStatus.set(block, "none");
+      } else if (ownSpans.some((sp) => spanHit.get(sp) === true)) {
+        ownStatus.set(block, "hit");
+      } else {
+        ownStatus.set(block, "miss");
+      }
+    }
+    const keep = /* @__PURE__ */ new Set();
+    for (const block of blocks) {
+      if (ownStatus.get(block) !== "hit") continue;
+      keep.add(block);
+      block.classList.add("jce-chronos-block-hit");
+      let parentLi = block.parentElement?.closest("li");
+      while (parentLi && content.contains(parentLi)) {
+        keep.add(parentLi);
+        parentLi = parentLi.parentElement?.closest("li");
+      }
+      if (block.tagName === "LI") {
+        const subLis = Array.from(block.querySelectorAll("li"));
+        for (const sub of subLis) {
+          if (ownStatus.get(sub) !== "miss") {
+            keep.add(sub);
+          }
+        }
+      }
+    }
+    for (const block of blocks) {
+      if (keep.has(block)) continue;
+      const parentLi = block.parentElement?.closest("li");
+      if (parentLi && !keep.has(parentLi) && content.contains(parentLi)) {
+        continue;
+      }
+      block.classList.add("jce-chronos-block-dim");
+    }
+  }
+  // ------------------------------------------------ click & Cmd+click wiring
+  onWindowClick(evt) {
+    if (evt.button !== 0) return;
+    const target = evt.target;
+    if (!target) return;
+    const wrapper = target.closest?.(".canvas-wrapper");
+    const canvas = wrapper ? this.canvasForElement(wrapper) : null;
+    if (canvas && this.isActive(canvas) && evt.detail === 1) {
+      const dateSpan = findDateSpanAtEvent(canvas, target, evt.clientX, evt.clientY);
+      if (dateSpan) {
+        const nodeId = dateSpan.dataset.nodeId ?? "";
+        const start = Number(dateSpan.dataset.start);
+        const end = Number(dateSpan.dataset.end);
+        const raw = dateSpan.dataset.raw ?? dateSpan.textContent ?? "";
+        if (nodeId && Number.isFinite(start) && Number.isFinite(end)) {
+          evt.preventDefault();
+          evt.stopPropagation();
+          evt.stopImmediatePropagation?.();
+          this.focusEvent(canvas, nodeId, start, end, raw);
+        }
+        return;
+      }
+    }
+    if (canvas && !this.isActive(canvas) && (evt.metaKey || evt.ctrlKey)) {
+      const node = nodeFromEvent(canvas, target);
+      if (!node || isEditing(node) || isGroupNode(node)) return;
+      const hit = dateAtPointPiercingBlocker(node, evt.clientX, evt.clientY);
+      if (!hit) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      evt.stopImmediatePropagation?.();
+      this.focusEvent(canvas, node.id, hit.start, hit.end, hit.raw);
+    }
+  }
+  onWindowDblClick(evt) {
+    const target = evt.target;
+    const dateSpan = target?.closest?.(".jce-chronos-date");
+    if (!dateSpan) return;
+    const canvas = this.canvasForElement(dateSpan);
+    if (!canvas) return;
+    const node = nodeFromEvent(canvas, dateSpan);
+    if (node && !isEditing(node)) {
+      unwrapDates(node.nodeEl);
+      node.startEditing?.();
+    }
+  }
+  canvasForElement(el) {
+    const wrapper = el.closest(".canvas-wrapper");
+    if (!wrapper) return null;
+    for (const leaf of this.plugin.app.workspace.getLeavesOfType("canvas")) {
+      const c = leaf.view.canvas;
+      if (c?.wrapperEl === wrapper) return c;
+    }
+    return null;
+  }
+  // ------------------------------------------------ minimalist bottom bar UI
+  ensureBar(canvas, state) {
+    if (state.barEl && state.barEl.isConnected) return state.barEl;
+    const host = canvas.wrapperEl.closest(".view-content") ?? canvas.wrapperEl;
+    const bar = host.createDiv({ cls: "jce-chronos-bar" });
+    bar.addEventListener("pointerdown", (e) => e.stopPropagation());
+    const info = bar.createDiv({ cls: "jce-chronos-info" });
+    info.createSpan({ cls: "jce-chronos-range" });
+    info.createSpan({ cls: "jce-chronos-count" });
+    const trackWrap = bar.createDiv({ cls: "jce-chronos-track-wrap" });
+    const track = trackWrap.createDiv({ cls: "jce-chronos-track" });
+    track.createDiv({ cls: "jce-chronos-rail" });
+    const band = track.createDiv({ cls: "jce-chronos-band" });
+    const thumbStart = track.createDiv({
+      cls: "jce-chronos-thumb",
+      attr: { "data-thumb": "start", title: "\u8D77\u59CB\u5E74\u4EFD / Start year" }
+    });
+    const thumbEnd = track.createDiv({
+      cls: "jce-chronos-thumb",
+      attr: { "data-thumb": "end", title: "\u7ED3\u675F\u5E74\u4EFD / End year" }
+    });
+    trackWrap.createDiv({ cls: "jce-chronos-ticks" });
+    const startDrag = (kind, evt) => {
+      if (evt.button !== 0 || !state.hasDates) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const rect = track.getBoundingClientRect();
+      state.dragging = {
+        kind,
+        pointerStartX: evt.clientX,
+        origStart: state.selStart,
+        origEnd: state.selEnd,
+        trackWidth: Math.max(1, rect.width)
+      };
+      bar.classList.add("is-dragging");
+    };
+    thumbStart.addEventListener("pointerdown", (e) => startDrag("start", e));
+    thumbEnd.addEventListener("pointerdown", (e) => startDrag("end", e));
+    band.addEventListener("pointerdown", (e) => startDrag("band", e));
+    track.addEventListener("pointerdown", (e) => {
+      if (e.target === thumbStart || e.target === thumbEnd || e.target === band) return;
+      if (e.button !== 0 || !state.hasDates) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = track.getBoundingClientRect();
+      const ratio = clamp((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+      const year = Math.round(state.minYear + ratio * (state.maxYear - state.minYear));
+      state.focusedEvent = null;
+      if (Math.abs(year - state.selStart) <= Math.abs(year - state.selEnd)) {
+        state.selStart = Math.min(year, state.selEnd);
+      } else {
+        state.selEnd = Math.max(year, state.selStart);
+      }
+      this.applyAll(canvas, state);
+    });
+    const controls = bar.createDiv({ cls: "jce-chronos-controls" });
+    const winBtn = controls.createEl("button", {
+      type: "button",
+      cls: "jce-chronos-chip",
+      text: "\xB130\u5E74",
+      attr: { "data-act": "win30", title: "\u70B9\u51FB\u6B63\u6587\u65E5\u671F\u65F6\uFF0C\u524D\u540E\u6269\u5C55 \xB130 \u5E74\u67E5\u770B\u540C\u671F\u4E8B\u4EF6" }
+    });
+    winBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    winBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.window30 = !state.window30;
+      if (state.focusedEvent) this.applyFocusedWindow(state);
+      this.applyAll(canvas, state);
+    });
+    const resetBtn = controls.createEl("button", {
+      type: "button",
+      cls: "jce-chronos-action",
+      attr: { "data-act": "reset", title: "\u91CD\u7F6E\u4E3A\u5168\u90E8\u5E74\u4EFD / Reset to full range" }
+    });
+    const resetIcon = resetBtn.createSpan({ cls: "jce-chronos-action-icon" });
+    (0, import_obsidian2.setIcon)(resetIcon, "rotate-ccw");
+    resetBtn.createSpan({ text: "\u91CD\u7F6E" });
+    resetBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    resetBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.resetRange(canvas, state);
+    });
+    const closeBtn = controls.createEl("button", {
+      type: "button",
+      cls: "jce-chronos-close",
+      attr: { "aria-label": "\u5173\u95ED\u65F6\u95F4\u8F74", title: "\u5173\u95ED\u65F6\u95F4\u8F74 / Close Chronos" }
+    });
+    (0, import_obsidian2.setIcon)(closeBtn, "x");
+    closeBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.close(canvas);
+    });
+    state.barEl = bar;
+    return bar;
+  }
+  renderBar(_canvas, state, matched, total, isFullRange) {
+    const bar = state.barEl;
+    if (!bar) return;
+    const rangeEl = bar.querySelector(".jce-chronos-range");
+    const countEl = bar.querySelector(".jce-chronos-count");
+    const trackWrap = bar.querySelector(".jce-chronos-track-wrap");
+    const band = bar.querySelector(".jce-chronos-band");
+    const thumbStart = bar.querySelector('.jce-chronos-thumb[data-thumb="start"]');
+    const thumbEnd = bar.querySelector('.jce-chronos-thumb[data-thumb="end"]');
+    const ticksEl = bar.querySelector(".jce-chronos-ticks");
+    if (!state.hasDates) {
+      if (rangeEl) rangeEl.textContent = "\u672A\u68C0\u6D4B\u5230\u5E74\u4EFD";
+      if (countEl) countEl.textContent = "\u53F3\u952E\u5361\u7247\u53EF\u6307\u5B9A";
+      trackWrap?.classList.add("is-empty");
+    } else {
+      trackWrap?.classList.remove("is-empty");
+      if (rangeEl) {
+        rangeEl.textContent = state.selStart === state.selEnd ? formatYear(state.selStart, true) : `${formatYear(state.selStart)} \u2014 ${formatYear(state.selEnd)}`;
+      }
+      if (countEl) countEl.textContent = `${matched}/${total}`;
+      const span = Math.max(1, state.maxYear - state.minYear);
+      const p1 = clamp((state.selStart - state.minYear) / span * 100, 0, 100);
+      const p2 = clamp((state.selEnd - state.minYear) / span * 100, p1, 100);
+      if (band) {
+        band.style.left = `${p1}%`;
+        band.style.width = `${Math.max(0.5, p2 - p1)}%`;
+      }
+      if (thumbStart) thumbStart.style.left = `${p1}%`;
+      if (thumbEnd) thumbEnd.style.left = `${p2}%`;
+      if (ticksEl) {
+        const sig = `${state.minYear}:${state.maxYear}`;
+        if (ticksEl.dataset.sig !== sig) {
+          ticksEl.dataset.sig = sig;
+          ticksEl.empty();
+          const steps = 4;
+          for (let i = 0; i <= steps; i++) {
+            const y = Math.round(state.minYear + (state.maxYear - state.minYear) * i / steps);
+            ticksEl.createSpan({ cls: "jce-chronos-tick", text: formatYear(y) });
+          }
+        }
+      }
+    }
+    const winBtn = bar.querySelector('[data-act="win30"]');
+    winBtn?.classList.toggle("is-on", state.window30);
+    const resetBtn = bar.querySelector('[data-act="reset"]');
+    if (resetBtn) {
+      resetBtn.hidden = isFullRange;
+    }
+  }
+  onPointerMove(evt) {
+    for (const [canvas, state] of this.states) {
+      if (!state.dragging || !state.hasDates) continue;
+      const { kind, pointerStartX, origStart, origEnd, trackWidth } = state.dragging;
+      const dx = evt.clientX - pointerStartX;
+      const span = state.maxYear - state.minYear;
+      const deltaYears = Math.round(dx / trackWidth * span);
+      state.focusedEvent = null;
+      if (kind === "start") {
+        state.selStart = clamp(origStart + deltaYears, state.minYear, state.selEnd);
+      } else if (kind === "end") {
+        state.selEnd = clamp(origEnd + deltaYears, state.selStart, state.maxYear);
+      } else {
+        const width = origEnd - origStart;
+        const nextStart = clamp(origStart + deltaYears, state.minYear, state.maxYear - width);
+        state.selStart = nextStart;
+        state.selEnd = nextStart + width;
+      }
+      this.applyAll(canvas, state);
+    }
+  }
+  onPointerUp() {
+    for (const state of this.states.values()) {
+      if (!state.dragging) continue;
+      state.dragging = null;
+      state.barEl?.classList.remove("is-dragging");
+    }
+  }
+};
+var SetTimeModal = class extends import_obsidian2.Modal {
+  constructor(app, node, onSubmit) {
+    super(app);
+    this.node = node;
+    this.onSubmit = onSubmit;
+    this.value = manualTimeOf(node);
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("jce-time-modal");
+    contentEl.createEl("h3", { text: "\u6307\u5B9A\u5361\u7247\u5E74\u4EFD / Set Card Time" });
+    const autoRanges = parseDatesFromText(nodeTextContent(this.node));
+    const autoText = autoRanges.length ? autoRanges.map(
+      (r) => r.start === r.end ? formatYear(r.start, true) : `${formatYear(r.start)}\u2014${formatYear(r.end, true)}`
+    ).join("\u3001") : "\u65E0";
+    contentEl.createDiv({
+      cls: "jce-time-hint",
+      text: `\u81EA\u52A8\u8BC6\u522B\uFF1A${autoText}\uFF08\u7559\u7A7A\u4FDD\u5B58\u5C06\u6062\u590D\u81EA\u52A8\u8BC6\u522B\uFF0C\u4E0D\u4FEE\u6539\u6B63\u6587\uFF09`
+    });
+    const input = contentEl.createEl("input", {
+      type: "text",
+      cls: "jce-time-input",
+      attr: {
+        placeholder: "\u4F8B\u5982\uFF1A1054\u3001532-537\u3001\u516C\u5143\u524D221-\u524D207\u3001532-537, 1054"
+      }
+    });
+    input.value = this.value;
+    const preview = contentEl.createDiv({ cls: "jce-time-preview" });
+    const updatePreview = () => {
+      const v = input.value.trim();
+      if (!v) {
+        preview.textContent = "\u5C06\u4F7F\u7528\u6B63\u6587\u81EA\u52A8\u8BC6\u522B\u7ED3\u679C";
+        preview.classList.remove("is-invalid");
+        return;
+      }
+      const parsed = parseManualTime(v);
+      if (!parsed.length) {
+        preview.textContent = "\u672A\u80FD\u89E3\u6790\u4E3A\u6709\u6548\u5E74\u4EFD\uFF0C\u8BF7\u68C0\u67E5\u683C\u5F0F";
+        preview.classList.add("is-invalid");
+      } else {
+        preview.textContent = "\u89E3\u6790\u7ED3\u679C\uFF1A" + parsed.map(
+          (r) => r.start === r.end ? formatYear(r.start, true) : `${formatYear(r.start)} \u2014 ${formatYear(r.end, true)}`
+        ).join(" \xB7 ");
+        preview.classList.remove("is-invalid");
+      }
+    };
+    updatePreview();
+    input.addEventListener("input", updatePreview);
+    const actions = contentEl.createDiv({ cls: "jce-time-actions" });
+    const clearBtn = actions.createEl("button", { type: "button", text: "\u6E05\u9664\u8986\u76D6" });
+    clearBtn.addEventListener("click", () => {
+      this.onSubmit("");
+      this.close();
+    });
+    const saveBtn = actions.createEl("button", {
+      type: "button",
+      cls: "mod-cta",
+      text: "\u4FDD\u5B58"
+    });
+    const commitModal = () => {
+      this.onSubmit(input.value.trim());
+      this.close();
+    };
+    saveBtn.addEventListener("click", commitModal);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitModal();
+      }
+    });
+    window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 20);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+function clearBlockClasses(root) {
+  root.querySelectorAll(".jce-chronos-block-dim, .jce-chronos-block-hit").forEach((el) => {
+    el.classList.remove("jce-chronos-block-dim", "jce-chronos-block-hit");
+  });
+}
+function unwrapDates(root) {
+  const spans = root.querySelectorAll(".jce-chronos-date");
+  if (!spans.length) {
+    if (root.dataset.jceChronosSig) delete root.dataset.jceChronosSig;
+    return;
+  }
+  const parents = /* @__PURE__ */ new Set();
+  spans.forEach((span) => {
+    const parent = span.parentNode;
+    if (!parent) return;
+    parents.add(parent);
+    parent.replaceChild(document.createTextNode(span.textContent ?? ""), span);
+  });
+  parents.forEach((p) => p.normalize());
+  root.querySelectorAll("[data-jce-chronos-sig]").forEach((el) => {
+    delete el.dataset.jceChronosSig;
+  });
+  delete root.dataset.jceChronosSig;
+}
+function findDateSpanAtEvent(canvas, target, clientX, clientY) {
+  const direct = target.closest?.(".jce-chronos-date");
+  if (direct) return direct;
+  const node = nodeFromEvent(canvas, target);
+  if (!node || isEditing(node) || isGroupNode(node)) return null;
+  const spans = node.nodeEl.querySelectorAll(".jce-chronos-date");
+  for (const span of Array.from(spans)) {
+    const rects = span.getClientRects();
+    for (const r of Array.from(rects)) {
+      if (clientX >= r.left - 2 && clientX <= r.right + 2 && clientY >= r.top - 2 && clientY <= r.bottom + 2) {
+        return span;
+      }
+    }
+  }
+  return null;
+}
+function dateAtPointPiercingBlocker(node, x, y) {
+  const blocker = node.nodeEl.querySelector(".canvas-node-content-blocker");
+  const prev = blocker?.style.pointerEvents;
+  if (blocker) blocker.style.pointerEvents = "none";
+  try {
+    return dateAtPoint(x, y);
+  } finally {
+    if (blocker) blocker.style.pointerEvents = prev ?? "";
+  }
+}
+function dateAtPoint(x, y) {
+  const doc = document;
+  const range = doc.caretRangeFromPoint?.(x, y);
+  if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+  const text = range.startContainer.nodeValue ?? "";
+  const offset = range.startOffset;
+  const matches = parseDatesFromText(text);
+  for (const m of matches) {
+    if (offset >= m.index && offset <= m.index + m.length) {
+      return m;
+    }
+  }
+  return null;
+}
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// src/collapse.ts
+var import_obsidian3 = require("obsidian");
 var COLLAPSED_CARD_H = 48;
 var COLLAPSED_GROUP_H = 44;
 var MIN_EXPANDED_H = 72;
@@ -1938,7 +2962,7 @@ var CardCollapseController = class {
     if (btn.dataset.folded !== nextState) {
       btn.dataset.folded = nextState;
       btn.empty();
-      (0, import_obsidian2.setIcon)(btn, folded ? "chevrons-down-up" : "chevrons-up-down");
+      (0, import_obsidian3.setIcon)(btn, folded ? "chevrons-down-up" : "chevrons-up-down");
       const tip = folded ? "\u5C55\u5F00 / Expand" : "\u6298\u53E0 / Collapse";
       btn.title = tip;
       btn.setAttribute("aria-label", tip);
@@ -2176,7 +3200,7 @@ function sigOf(nodes) {
 
 // src/format.ts
 var import_view = require("@codemirror/view");
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 var BUTTONS = [
   { id: "bold", glyph: "B", label: "\u7C97\u4F53 / Bold  \u2318B", group: 0 },
   { id: "italic", glyph: "I", label: "\u659C\u4F53 / Italic  \u2318I", group: 0 },
@@ -2239,7 +3263,7 @@ var FormatBar = class {
       el.setAttribute("aria-label", btn.label);
       if (btn.id === "bg") {
         el.classList.add("jce-fmt-icon");
-        (0, import_obsidian3.setIcon)(el, "paint-bucket");
+        (0, import_obsidian4.setIcon)(el, "paint-bucket");
       } else {
         const glyph = document.createElement("span");
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
@@ -2318,7 +3342,7 @@ var FormatBar = class {
     return Array.from(canvas.canvasEl.querySelectorAll(".canvas-node iframe"));
   }
   activeCanvas() {
-    const view = this.plugin.app.workspace.getActiveViewOfType(import_obsidian3.FileView);
+    const view = this.plugin.app.workspace.getActiveViewOfType(import_obsidian4.FileView);
     if (!view || view.getViewType() !== "canvas") return null;
     return view.canvas ?? null;
   }
@@ -2632,7 +3656,7 @@ function escapeRe(s) {
 }
 
 // src/minimap.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var MAP_W = 208;
 var MAP_H = 136;
 var PAD = 10;
@@ -2695,7 +3719,7 @@ var MinimapController = class {
       cls: "jce-minimap-close",
       attr: { title: "\u9690\u85CF\u5C0F\u5730\u56FE / Hide minimap", "aria-label": "Hide minimap" }
     });
-    (0, import_obsidian4.setIcon)(closeBtn, "x");
+    (0, import_obsidian5.setIcon)(closeBtn, "x");
     const canvasEl = rootEl.createEl("canvas", { cls: "jce-minimap-canvas" });
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     canvasEl.width = Math.round(MAP_W * dpr);
@@ -2864,7 +3888,7 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 // src/toolbar.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/icons.ts
 var SVG_NS = "http://www.w3.org/2000/svg";
@@ -3061,10 +4085,11 @@ function renderToolIcon(host, id) {
 
 // src/toolbar.ts
 var CanvasToolbar = class {
-  constructor(onPick, onSearch, onMinimap) {
+  constructor(onPick, onSearch, onMinimap, onChronos) {
     this.onPick = onPick;
     this.onSearch = onSearch;
     this.onMinimap = onMinimap;
+    this.onChronos = onChronos;
     this.current = "select";
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
@@ -3103,7 +4128,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(SEARCH_TOOL)
       }
     });
-    (0, import_obsidian5.setIcon)(searchBtn, "search");
+    (0, import_obsidian6.setIcon)(searchBtn, "search");
     searchBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     searchBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -3120,7 +4145,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(MINIMAP_TOOL)
       }
     });
-    (0, import_obsidian5.setIcon)(minimapBtn, "map");
+    (0, import_obsidian6.setIcon)(minimapBtn, "map");
     minimapBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     minimapBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -3128,12 +4153,29 @@ var CanvasToolbar = class {
       this.onMinimap();
     });
     this.minimapBtn = minimapBtn;
+    const chronosBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-chronos",
+      attr: {
+        "data-tool": "chronos",
+        title: tooltip(CHRONOS_TOOL),
+        "aria-label": tooltip(CHRONOS_TOOL)
+      }
+    });
+    (0, import_obsidian6.setIcon)(chronosBtn, "hourglass");
+    chronosBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    chronosBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onChronos();
+    });
+    this.chronosBtn = chronosBtn;
     this.setActive("select");
   }
   setActive(id) {
     this.current = id;
     this.el.querySelectorAll(".jce-tool").forEach((btn) => {
-      if (btn === this.searchBtn || btn === this.minimapBtn) return;
+      if (btn === this.searchBtn || btn === this.minimapBtn || btn === this.chronosBtn) return;
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
   }
@@ -3142,6 +4184,9 @@ var CanvasToolbar = class {
   }
   setMinimapActive(active) {
     this.minimapBtn.classList.toggle("is-active", active);
+  }
+  setChronosActive(active) {
+    this.chronosBtn.classList.toggle("is-active", active);
   }
   getActive() {
     return this.current;
@@ -3152,7 +4197,7 @@ var CanvasToolbar = class {
 };
 
 // src/menus.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 var PALETTE = [
   { id: "", label: "\u9ED8\u8BA4 / Default", swatch: "#d8d8d8" },
   { id: "1", label: "\u7EA2 / Red", swatch: "#fb464c" },
@@ -3215,7 +4260,7 @@ var ContextMenus = class {
     evt.stopPropagation();
     this.hide();
     const node = nodeFromWrapper(canvas, target);
-    const menu = new import_obsidian6.Menu();
+    const menu = new import_obsidian7.Menu();
     if (node) this.buildObjectMenu(menu, canvas, node);
     else this.buildBlankMenu(menu, canvas, canvas.posFromEvt(evt));
     this.open = menu;
@@ -3290,6 +4335,14 @@ var ContextMenus = class {
         (row) => row.setTitle(menuLabel(MENU.groupSection)).setIcon("frame").onClick(() => this.handlers.groupSelection(canvas, node))
       );
     }
+    if (!isGroupNode(node)) {
+      menu.addItem(
+        (row) => row.setTitle(menuLabel(MENU.chronosFocus)).setIcon("hourglass").onClick(() => this.handlers.chronosFocusNode(canvas, node))
+      );
+      menu.addItem(
+        (row) => row.setTitle(menuLabel(MENU.setTime)).setIcon("calendar").onClick(() => this.handlers.setCardTime(canvas, node))
+      );
+    }
     menu.addItem(
       (item) => item.setTitle(menuLabel(MENU.remove)).setIcon("trash").onClick(() => this.handlers.remove(canvas, node.id))
     );
@@ -3318,7 +4371,7 @@ function canvasFromWrapper(plugin, wrapper) {
     const view = leaf.view;
     if (view.canvas?.wrapperEl === wrapper) return view.canvas;
   }
-  const active = plugin.app.workspace.getActiveViewOfType(import_obsidian6.FileView);
+  const active = plugin.app.workspace.getActiveViewOfType(import_obsidian7.FileView);
   if (active && active.getViewType() === "canvas") {
     return active.canvas ?? null;
   }
@@ -3334,7 +4387,7 @@ function nodeFromWrapper(canvas, target) {
 }
 
 // src/mindmap.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/objects.ts
 var import_view2 = require("@codemirror/view");
@@ -3640,13 +4693,13 @@ function collectDescendants(tree, id) {
   return out;
 }
 function activeCanvasView(plugin) {
-  const view = plugin.app.workspace.getActiveViewOfType(import_obsidian7.FileView);
+  const view = plugin.app.workspace.getActiveViewOfType(import_obsidian8.FileView);
   if (!view || view.getViewType() !== "canvas") return null;
   return view.canvas ?? null;
 }
 
 // src/search.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 var CanvasSearchBar = class {
   constructor(opts = {}) {
     this.opts = opts;
@@ -3701,7 +4754,7 @@ var CanvasSearchBar = class {
     barEl.hidden = true;
     const row = barEl.createDiv({ cls: "jce-search-row" });
     const icon = row.createSpan({ cls: "jce-search-icon" });
-    (0, import_obsidian8.setIcon)(icon, "search");
+    (0, import_obsidian9.setIcon)(icon, "search");
     const inputEl = row.createEl("input", {
       type: "text",
       cls: "jce-search-input",
@@ -3713,19 +4766,19 @@ var CanvasSearchBar = class {
       cls: "jce-search-nav",
       attr: { title: "\u4E0A\u4E00\u4E2A / Previous (Shift+Enter)", "aria-label": "Previous" }
     });
-    (0, import_obsidian8.setIcon)(prevBtn, "chevron-up");
+    (0, import_obsidian9.setIcon)(prevBtn, "chevron-up");
     const nextBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-nav",
       attr: { title: "\u4E0B\u4E00\u4E2A / Next (Enter)", "aria-label": "Next" }
     });
-    (0, import_obsidian8.setIcon)(nextBtn, "chevron-down");
+    (0, import_obsidian9.setIcon)(nextBtn, "chevron-down");
     const closeBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-close",
       attr: { title: "\u5173\u95ED / Close (Esc)", "aria-label": "Close" }
     });
-    (0, import_obsidian8.setIcon)(closeBtn, "x");
+    (0, import_obsidian9.setIcon)(closeBtn, "x");
     const listEl = barEl.createDiv({ cls: "jce-search-list" });
     listEl.hidden = true;
     const state = {
@@ -4073,7 +5126,7 @@ var TOOL_KEYS = {
   g: "section",
   d: "todo"
 };
-var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
+var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
   constructor() {
     super(...arguments);
     this.keyScope = null;
@@ -4116,12 +5169,18 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       this.align.sync(canvas);
       this.minimap.sync(canvas);
       this.anchors.syncHandles(canvas);
+      this.chronos.sync(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
     this.connect = new ConnectTool(this);
     this.anchors = new EdgeAnchorsController(this);
+    this.chronos = new ChronosController(this, {
+      onActiveChange: (canvas, active) => {
+        this.toolbars.get(canvas)?.setChronosActive(active);
+      }
+    });
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -4149,13 +5208,19 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       toggleCardFold: (canvas, nodeId) => {
         this.collapse.toggle(canvas, nodeId);
         this.chrome.invalidate(canvas);
+      },
+      setCardTime: (canvas, node) => {
+        this.chronos.openSetTimeModal(canvas, node);
+      },
+      chronosFocusNode: (canvas, node) => {
+        this.chronos.focusNode(canvas, node);
       }
     });
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("file-open", () => window.setTimeout(() => this.sync(), 60)));
     this.registerDomEvent(window, "keydown", (evt) => this.onKey(evt), true);
-    const scope = new import_obsidian9.Scope(this.app.scope);
+    const scope = new import_obsidian10.Scope(this.app.scope);
     scope.register(["Mod"], "g", (evt) => {
       const canvas = activeCanvas(this.app);
       if (!canvas || isTyping(evt.target)) return;
@@ -4260,6 +5325,16 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       }
     });
     this.addCommand({
+      id: "toggle-chronos",
+      name: "\u5207\u6362\u65F6\u95F4\u8F74 / Toggle Chronos timeline",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.chronos.toggle(canvas);
+        return true;
+      }
+    });
+    this.addCommand({
       id: "add-mindmap-child",
       name: "\u65B0\u5EFA\u5BFC\u56FE\u5B50\u8282\u70B9 / Add mindmap child",
       checkCallback: (checking) => {
@@ -4287,10 +5362,12 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
     this.align.destroy();
     this.minimap.destroy();
     this.anchors.destroy();
+    this.chronos.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
+      this.chronos.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -4319,6 +5396,7 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
+      this.chronos.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -4332,9 +5410,11 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
     const bar = new CanvasToolbar(
       (tool) => this.onTool(canvas, tool),
       () => this.search.toggle(canvas),
-      () => this.minimap.toggle(this.toolbars.keys())
+      () => this.minimap.toggle(this.toolbars.keys()),
+      () => this.chronos.toggle(canvas)
     );
     bar.setMinimapActive(this.minimap.isOpen());
+    bar.setChronosActive(this.chronos.isActive(canvas));
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
@@ -4452,6 +5532,12 @@ var CanvasEnhancePlugin = class extends import_obsidian9.Plugin {
         evt.preventDefault();
         evt.stopPropagation();
         this.focus.exit(canvas);
+        return;
+      }
+      if (this.chronos.isActive(canvas) && !isTyping(evt.target)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.chronos.close(canvas);
         return;
       }
       this.setPlacing(null);
@@ -4637,7 +5723,7 @@ function canvasOf(leaf) {
   return view.canvas ?? null;
 }
 function activeCanvas(app) {
-  const view = app.workspace.getActiveViewOfType(import_obsidian9.FileView);
+  const view = app.workspace.getActiveViewOfType(import_obsidian10.FileView);
   if (!view || view.getViewType() !== "canvas") return null;
   return view.canvas ?? null;
 }

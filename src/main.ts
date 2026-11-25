@@ -20,6 +20,7 @@ import {
 import { AlignBar, applyAlignment } from "./align";
 import { EdgeAnchorsController } from "./anchors";
 import { Chrome } from "./chrome";
+import { ChronosController } from "./chronos";
 import { CardCollapseController } from "./collapse";
 import { ConnectTool } from "./connect";
 import { FocusController } from "./focus";
@@ -60,6 +61,7 @@ export default class CanvasEnhancePlugin extends Plugin {
   private align!: AlignBar;
   private minimap!: MinimapController;
   private anchors!: EdgeAnchorsController;
+  private chronos!: ChronosController;
   private keyScope: Scope | null = null;
   private prefs: { minimapOpen?: boolean } = {};
 
@@ -101,12 +103,18 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.align.sync(canvas);
       this.minimap.sync(canvas);
       this.anchors.syncHandles(canvas);
+      this.chronos.sync(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
     this.todo = new TodoController(this);
     this.connect = new ConnectTool(this);
     this.anchors = new EdgeAnchorsController(this);
+    this.chronos = new ChronosController(this, {
+      onActiveChange: (canvas, active) => {
+        this.toolbars.get(canvas)?.setChronosActive(active);
+      },
+    });
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -134,6 +142,12 @@ export default class CanvasEnhancePlugin extends Plugin {
       toggleCardFold: (canvas, nodeId) => {
         this.collapse.toggle(canvas, nodeId);
         this.chrome.invalidate(canvas);
+      },
+      setCardTime: (canvas, node) => {
+        this.chronos.openSetTimeModal(canvas, node);
+      },
+      chronosFocusNode: (canvas, node) => {
+        this.chronos.focusNode(canvas, node);
       },
     });
 
@@ -265,6 +279,17 @@ export default class CanvasEnhancePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "toggle-chronos",
+      name: "切换时间轴 / Toggle Chronos timeline",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.chronos.toggle(canvas);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "add-mindmap-child",
       name: "新建导图子节点 / Add mindmap child",
       checkCallback: (checking) => {
@@ -294,10 +319,12 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.align.destroy();
     this.minimap.destroy();
     this.anchors.destroy();
+    this.chronos.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
+      this.chronos.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -328,6 +355,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
+      this.chronos.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -342,9 +370,11 @@ export default class CanvasEnhancePlugin extends Plugin {
     const bar = new CanvasToolbar(
       (tool) => this.onTool(canvas, tool),
       () => this.search.toggle(canvas),
-      () => this.minimap.toggle(this.toolbars.keys())
+      () => this.minimap.toggle(this.toolbars.keys()),
+      () => this.chronos.toggle(canvas)
     );
     bar.setMinimapActive(this.minimap.isOpen());
+    bar.setChronosActive(this.chronos.isActive(canvas));
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
@@ -476,6 +506,12 @@ export default class CanvasEnhancePlugin extends Plugin {
         evt.preventDefault();
         evt.stopPropagation();
         this.focus.exit(canvas);
+        return;
+      }
+      if (this.chronos.isActive(canvas) && !isTyping(evt.target)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.chronos.close(canvas);
         return;
       }
       this.setPlacing(null);

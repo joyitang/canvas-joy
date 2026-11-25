@@ -8,7 +8,7 @@
  */
 
 import { setIcon } from "obsidian";
-import { MINIMAP_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
+import { CHRONOS_TOOL, MINIMAP_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
 import { renderToolIcon } from "./icons";
 
 export class CanvasToolbar {
@@ -16,11 +16,13 @@ export class CanvasToolbar {
   private current: ToolId | null = "select";
   private searchBtn: HTMLButtonElement;
   private minimapBtn: HTMLButtonElement;
+  private chronosBtn: HTMLButtonElement;
 
   constructor(
     private onPick: (id: ToolId) => void,
     private onSearch: () => void,
-    private onMinimap: () => void
+    private onMinimap: () => void,
+    private onChronos: () => void
   ) {
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
@@ -89,13 +91,31 @@ export class CanvasToolbar {
     });
     this.minimapBtn = minimapBtn;
 
+    const chronosBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-chronos",
+      attr: {
+        "data-tool": "chronos",
+        title: tooltip(CHRONOS_TOOL),
+        "aria-label": tooltip(CHRONOS_TOOL),
+      },
+    });
+    setIcon(chronosBtn, "hourglass");
+    chronosBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    chronosBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onChronos();
+    });
+    this.chronosBtn = chronosBtn;
+
     this.setActive("select");
   }
 
   setActive(id: ToolId | null): void {
     this.current = id;
     this.el.querySelectorAll<HTMLElement>(".jce-tool").forEach((btn) => {
-      if (btn === this.searchBtn || btn === this.minimapBtn) return;
+      if (btn === this.searchBtn || btn === this.minimapBtn || btn === this.chronosBtn) return;
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
   }
@@ -106,6 +126,10 @@ export class CanvasToolbar {
 
   setMinimapActive(active: boolean): void {
     this.minimapBtn.classList.toggle("is-active", active);
+  }
+
+  setChronosActive(active: boolean): void {
+    this.chronosBtn.classList.toggle("is-active", active);
   }
 
   getActive(): ToolId | null {

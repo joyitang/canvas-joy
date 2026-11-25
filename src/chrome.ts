@@ -168,6 +168,8 @@ export class Chrome {
           isEditing(node) ? "e" : "",
           node.getData().jceFold === true ? "f" : "",
           isCardFolded(node) ? `cf${foldKidsOf(node).length}` : "",
+          String(node.getData().jceTime ?? ""),
+          String(node.nodeEl?.querySelector(".markdown-preview-view")?.childElementCount ?? 0),
           `${text.length}:${text.slice(0, 48)}`,
         ].join(":")
       );

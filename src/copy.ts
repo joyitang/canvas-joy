@@ -17,6 +17,7 @@ export type ToolId = keyof typeof TOOLS;
 
 export const SEARCH_TOOL = { id: "search", zh: "搜索", en: "Search", key: "⌘F" } as const;
 export const MINIMAP_TOOL = { id: "minimap", zh: "小地图", en: "Minimap" } as const;
+export const CHRONOS_TOOL = { id: "chronos", zh: "时间轴", en: "Chronos" } as const;
 
 export const ALIGN_OPS = {
   left: { zh: "左对齐", en: "Align left" },
@@ -44,6 +45,8 @@ export const MENU = {
   align: { zh: "对齐与分布", en: "Align & distribute" },
   collapseCard: { zh: "折叠", en: "Collapse" },
   expandCard: { zh: "展开", en: "Expand" },
+  setTime: { zh: "指定年份", en: "Set time" },
+  chronosFocus: { zh: "时间轴查看", en: "View in Chronos" },
 } as const;
 
 export const DEFAULTS = {
