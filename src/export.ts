@@ -345,13 +345,17 @@ export class CanvasPngExporter {
     const top = orig.style.getPropertyValue("--jce-ov-top") || cs.getPropertyValue("--jce-ov-top");
     const w = orig.style.getPropertyValue("--jce-ov-w") || cs.getPropertyValue("--jce-ov-w");
     const h = orig.style.getPropertyValue("--jce-ov-h") || cs.getPropertyValue("--jce-ov-h");
-    if (left) clone.style.left = left;
-    if (top) clone.style.top = top;
-    if (w) clone.style.width = w;
-    if (h) clone.style.height = h;
+    const props: Record<string, string> = {};
+    if (left) props.left = left;
+    if (top) props.top = top;
+    if (w) props.width = w;
+    if (h) props.height = h;
     if (orig.classList.contains("jce-overlay")) {
-      clone.style.position = "absolute";
-      clone.style.overflow = "visible";
+      props.position = "absolute";
+      props.overflow = "visible";
+    }
+    if (Object.keys(props).length > 0) {
+      clone.setCssProps(props);
     }
   }
 
