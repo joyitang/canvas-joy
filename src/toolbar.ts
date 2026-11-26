@@ -29,9 +29,9 @@ export class CanvasToolbar {
     this.el.setAttribute("role", "toolbar");
     this.el.setAttribute("aria-label", "Canvas Joy");
 
-    const order: ToolId[] = ["select", "connect", "note", "text", "todo", "mindmap", "section"];
-    order.forEach((id, index) => {
-      if (index === 2) {
+    const order: ToolId[] = ["select", "note", "text", "todo", "mindmap", "section"];
+    order.forEach((id) => {
+      if (id === "note") {
         this.el.createDiv({ cls: "jce-tool-sep" });
       }
       const meta = TOOLS[id];
