@@ -5,7 +5,7 @@
  * Obsidian 1.15 Canvas internals; see bridge.ts for the verified assumptions.
  */
 
-import { FileView, Plugin, Scope, WorkspaceLeaf } from "obsidian";
+import { FileView, Plugin, Scope, TFile, WorkspaceLeaf } from "obsidian";
 import {
   CanvasLike,
   NodeLike,
@@ -24,6 +24,7 @@ import { ChronosController } from "./chronos";
 import { CardCollapseController } from "./collapse";
 import { ConnectTool } from "./connect";
 import { FocusController } from "./focus";
+import { CanvasPngExporter } from "./export";
 import { FormatBar } from "./format";
 import { MinimapController } from "./minimap";
 import { CanvasToolbar } from "./toolbar";
@@ -67,6 +68,7 @@ export default class CanvasEnhancePlugin extends Plugin {
   private chronos!: ChronosController;
   private outline!: SectionOutlineController;
   private pdfPaste!: PdfPasteController;
+  private exporter!: CanvasPngExporter;
   private keyScope: Scope | null = null;
   private prefs: { minimapOpen?: boolean; outlines?: Record<string, OutlinePrefs> } = {};
 
@@ -139,6 +141,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       },
     });
     this.pdfPaste = new PdfPasteController(this.chrome);
+    this.exporter = new CanvasPngExporter();
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -172,6 +175,14 @@ export default class CanvasEnhancePlugin extends Plugin {
       },
       chronosFocusNode: (canvas, node) => {
         this.chronos.focusNode(canvas, node);
+      },
+      exportPng: (canvas, targetNodes) => {
+        const file = this.canvasFile(canvas);
+        const isPartial = Array.isArray(targetNodes) && targetNodes.length > 0;
+        void this.exporter.exportPng(canvas, {
+          targetNodes,
+          fileName: file ? (isPartial ? `${file.basename}-part` : file.basename) : undefined,
+        });
       },
     });
 
@@ -358,6 +369,40 @@ export default class CanvasEnhancePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "export-canvas-png",
+      name: "导出画布为 PNG / Export canvas as PNG",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) {
+          const file = this.canvasFile(canvas);
+          void this.exporter.exportPng(canvas, {
+            selectionOnly: false,
+            fileName: file?.basename,
+          });
+        }
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "export-selection-png",
+      name: "导出选中区域为 PNG / Export selection as PNG",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas || !selectedNodes(canvas).length) return false;
+        if (!checking) {
+          const file = this.canvasFile(canvas);
+          void this.exporter.exportPng(canvas, {
+            selectionOnly: true,
+            fileName: file ? `${file.basename}-selection` : undefined,
+          });
+        }
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "add-mindmap-child",
       name: "新建导图子节点 / Add mindmap child",
       checkCallback: (checking) => {
@@ -453,14 +498,18 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.toolbars.set(canvas, bar);
   }
 
-  private canvasFilePath(canvas: CanvasLike): string | null {
+  private canvasFile(canvas: CanvasLike): TFile | null {
     for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
       if (canvasOf(leaf) === canvas) {
-        const file = (leaf.view as { file?: { path?: string } | null }).file;
-        return file?.path ?? null;
+        const file = (leaf.view as { file?: TFile | null }).file;
+        return file ?? null;
       }
     }
     return null;
+  }
+
+  private canvasFilePath(canvas: CanvasLike): string | null {
+    return this.canvasFile(canvas)?.path ?? null;
   }
 
   /** Keep the overlay honest while nodes are being dragged. */

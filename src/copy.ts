@@ -48,6 +48,10 @@ export const MENU = {
   expandCard: { zh: "展开", en: "Expand" },
   setTime: { zh: "指定年份", en: "Set time" },
   chronosFocus: { zh: "时间轴查看", en: "View in Chronos" },
+  exportCanvas: { zh: "导出画布为 PNG", en: "Export canvas as PNG" },
+  exportCard: { zh: "导出该卡片为 PNG", en: "Export card as PNG" },
+  exportSection: { zh: "导出该分区为 PNG", en: "Export section as PNG" },
+  exportSelection: { zh: "导出选中区域为 PNG", en: "Export selection as PNG" },
 } as const;
 
 export const DEFAULTS = {

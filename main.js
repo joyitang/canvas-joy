@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => CanvasEnhancePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian11 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 
 // src/bridge.ts
 var edgeCtors = /* @__PURE__ */ new WeakMap();
@@ -231,7 +231,11 @@ var MENU = {
   collapseCard: { zh: "\u6298\u53E0", en: "Collapse" },
   expandCard: { zh: "\u5C55\u5F00", en: "Expand" },
   setTime: { zh: "\u6307\u5B9A\u5E74\u4EFD", en: "Set time" },
-  chronosFocus: { zh: "\u65F6\u95F4\u8F74\u67E5\u770B", en: "View in Chronos" }
+  chronosFocus: { zh: "\u65F6\u95F4\u8F74\u67E5\u770B", en: "View in Chronos" },
+  exportCanvas: { zh: "\u5BFC\u51FA\u753B\u5E03\u4E3A PNG", en: "Export canvas as PNG" },
+  exportCard: { zh: "\u5BFC\u51FA\u8BE5\u5361\u7247\u4E3A PNG", en: "Export card as PNG" },
+  exportSection: { zh: "\u5BFC\u51FA\u8BE5\u5206\u533A\u4E3A PNG", en: "Export section as PNG" },
+  exportSelection: { zh: "\u5BFC\u51FA\u9009\u4E2D\u533A\u57DF\u4E3A PNG", en: "Export selection as PNG" }
 };
 var DEFAULTS = {
   noteCard: "Note Card",
@@ -3200,9 +3204,488 @@ function sigOf(nodes) {
   return nodes.map((n) => n.id).sort().join(",");
 }
 
+// src/export.ts
+var import_obsidian4 = require("obsidian");
+var PADDING = 64;
+var DEFAULT_SCALE = 2;
+var MAX_CANVAS_SIDE = 8192;
+var MAX_CANVAS_PIXELS = 4e7;
+var SECTION_LABEL_HEADROOM = 32;
+var CanvasPngExporter = class {
+  constructor() {
+    this.transparentBg = false;
+    this.exporting = false;
+  }
+  /** Show a compact export menu anchored to a button or mouse event. */
+  openMenu(canvas, anchor, file) {
+    const sel = selectedNodes(canvas).filter((n) => this.isNodeVisible(n));
+    const menu = new import_obsidian4.Menu();
+    menu.addItem(
+      (item) => item.setTitle("\u5BFC\u51FA\u6574\u4E2A\u753B\u5E03 (PNG) / Export full canvas").setIcon("image").onClick(() => {
+        void this.exportPng(canvas, {
+          selectionOnly: false,
+          transparent: this.transparentBg,
+          fileName: file?.basename
+        });
+      })
+    );
+    if (sel.length > 0) {
+      menu.addItem(
+        (item) => item.setTitle(`\u5BFC\u51FA\u9009\u4E2D\u533A\u57DF (${sel.length}) / Export selection`).setIcon("scan").onClick(() => {
+          void this.exportPng(canvas, {
+            selectionOnly: true,
+            transparent: this.transparentBg,
+            fileName: file?.basename ? `${file.basename}-selection` : void 0
+          });
+        })
+      );
+    }
+    menu.addSeparator();
+    menu.addItem(
+      (item) => item.setTitle("\u900F\u660E\u80CC\u666F / Transparent background").setChecked(this.transparentBg).onClick(() => {
+        this.transparentBg = !this.transparentBg;
+      })
+    );
+    if (anchor instanceof MouseEvent) {
+      menu.showAtMouseEvent(anchor);
+    } else {
+      const rect = anchor.getBoundingClientRect();
+      menu.showAtPosition({ x: rect.right + 6, y: rect.top });
+    }
+  }
+  async exportPng(canvas, opts = {}) {
+    if (this.exporting) {
+      new import_obsidian4.Notice("\u6B63\u5728\u5BFC\u51FA\u56FE\u7247\uFF0C\u8BF7\u7A0D\u5019\u2026");
+      return;
+    }
+    const hasExplicitTargets = Array.isArray(opts.targetNodes) && opts.targetNodes.length > 0;
+    const isPartial = opts.selectionOnly === true || hasExplicitTargets;
+    const targets = this.collectTargetNodes(canvas, opts);
+    if (targets.length === 0) {
+      new import_obsidian4.Notice(isPartial ? "\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u9009\u4E2D\u5143\u7D20" : "\u753B\u5E03\u4E3A\u7A7A\uFF0C\u65E0\u6CD5\u5BFC\u51FA");
+      return;
+    }
+    this.exporting = true;
+    const notice = new import_obsidian4.Notice("\u6B63\u5728\u751F\u6210\u9AD8\u6E05 PNG\u2026", 0);
+    try {
+      const bbox = this.computeBBox(targets);
+      const worldX = bbox.minX - PADDING;
+      const worldY = bbox.minY - PADDING;
+      const worldW = Math.max(1, bbox.maxX - bbox.minX + PADDING * 2);
+      const worldH = Math.max(1, bbox.maxY - bbox.minY + PADDING * 2);
+      const requestedScale = opts.scale ?? DEFAULT_SCALE;
+      const safeScale = this.clampScale(worldW, worldH, requestedScale);
+      if (safeScale < requestedScale - 0.05) {
+        new import_obsidian4.Notice(
+          `\u753B\u5E03\u5C3A\u5BF8\u8F83\u5927\uFF0C\u5DF2\u81EA\u52A8\u8C03\u6574\u4E3A ${safeScale.toFixed(2)}x \u5206\u8FA8\u7387\u5BFC\u51FA\u4EE5\u9632\u6B62\u5185\u5B58\u6EA2\u51FA`,
+          4e3
+        );
+      }
+      const outW = Math.round(worldW * safeScale);
+      const outH = Math.round(worldH * safeScale);
+      const restored = await this.ensureNormalZoom(canvas, bbox);
+      let clonedWorld;
+      try {
+        clonedWorld = await this.buildClonedWorld(
+          canvas,
+          targets,
+          worldX,
+          worldY,
+          worldW,
+          worldH,
+          isPartial
+        );
+      } finally {
+        if (restored) restored();
+      }
+      const bgColor = opts.transparent ? "transparent" : this.resolveThemeBg(canvas);
+      const cssText = this.collectStylesText(canvas);
+      const rootClasses = this.collectRootClasses(canvas);
+      const svgMarkup = this.buildForeignObjectSvg(
+        clonedWorld,
+        cssText,
+        rootClasses,
+        bgColor,
+        worldW,
+        worldH
+      );
+      const blob = await this.rasterizeSvgToPng(svgMarkup, worldW, worldH, outW, outH, bgColor);
+      const name = `${opts.fileName || "canvas"}-${this.timestamp()}.png`;
+      this.triggerDownload(blob, name);
+      new import_obsidian4.Notice(`\u5DF2\u5BFC\u51FA ${name} (${outW}\xD7${outH})`, 3e3);
+    } catch (err) {
+      console.error("[canvas-joy] PNG export failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      new import_obsidian4.Notice(`\u5BFC\u51FA PNG \u5931\u8D25\uFF1A${msg.slice(0, 80)}`, 5e3);
+    } finally {
+      notice.hide();
+      this.exporting = false;
+    }
+  }
+  // ------------------------------------------------------------------ targets
+  isNodeVisible(node) {
+    const el = node.nodeEl;
+    if (!el) return false;
+    if (el.style.display === "none") return false;
+    if (el.classList.contains("jce-sec-hidden") || el.classList.contains("jce-hidden")) {
+      return false;
+    }
+    return true;
+  }
+  collectTargetNodes(canvas, opts) {
+    if (opts.targetNodes && opts.targetNodes.length > 0) {
+      return this.expandWithGroupChildren(canvas, opts.targetNodes).filter(
+        (n) => this.isNodeVisible(n)
+      );
+    }
+    if (opts.selectionOnly) {
+      return this.expandWithGroupChildren(canvas, selectedNodes(canvas)).filter(
+        (n) => this.isNodeVisible(n)
+      );
+    }
+    return allNodes(canvas).filter((n) => this.isNodeVisible(n));
+  }
+  /** When a Section (group) is targeted, include all visible nodes inside it. */
+  expandWithGroupChildren(canvas, seeds) {
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    const push = (n) => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      out.push(n);
+    };
+    for (const node of seeds) {
+      push(node);
+      if (isGroupNode(node)) {
+        for (const inside of nodesInsideGroup(canvas, node)) {
+          push(inside);
+        }
+      }
+    }
+    return out;
+  }
+  computeBBox(nodes) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of nodes) {
+      const isGroup = n.getData().type === "group";
+      const topExtra = isGroup ? SECTION_LABEL_HEADROOM : 0;
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y - topExtra);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  clampScale(w, h, desired) {
+    const bySide = Math.min(MAX_CANVAS_SIDE / w, MAX_CANVAS_SIDE / h);
+    const byArea = Math.sqrt(MAX_CANVAS_PIXELS / (w * h));
+    return Math.max(0.25, Math.min(desired, bySide, byArea));
+  }
+  // ------------------------------------------------------------------ zoom guard
+  async ensureNormalZoom(canvas, bbox) {
+    const curScale = scaleOf(canvas);
+    const wasZoomedOut = curScale < 0.5 || canvas.wrapperEl.classList.contains("mod-zoomed-out");
+    if (!wasZoomedOut || !canvas.setViewport) return null;
+    const prevX = canvas.x ?? 0;
+    const prevY = canvas.y ?? 0;
+    const prevZoom = curScale;
+    const cx = (bbox.minX + bbox.maxX) / 2;
+    const cy = (bbox.minY + bbox.maxY) / 2;
+    canvas.setViewport(cx, cy, 1);
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => window.setTimeout(resolve, 90));
+    });
+    return () => {
+      canvas.setViewport?.(prevX, prevY, prevZoom);
+    };
+  }
+  // ------------------------------------------------------------------ DOM clone
+  async buildClonedWorld(canvas, targets, worldX, worldY, worldW, worldH, selectionOnly) {
+    const targetIds = new Set(targets.map((n) => n.id));
+    const stage = document.createElement("div");
+    stage.className = "canvas-wrapper jce-export-stage";
+    stage.style.cssText = [
+      "position: relative",
+      `width: ${worldW}px`,
+      `height: ${worldH}px`,
+      "overflow: hidden",
+      "background: transparent",
+      "pointer-events: none"
+    ].join(";");
+    const world = document.createElement("div");
+    world.className = "canvas";
+    world.style.cssText = [
+      "position: absolute",
+      `left: ${-worldX}px`,
+      `top: ${-worldY}px`,
+      "transform: none",
+      "transform-origin: 0 0"
+    ].join(";");
+    for (const child of Array.from(canvas.canvasEl.children)) {
+      if (child instanceof SVGSVGElement) {
+        if (selectionOnly && !child.classList.contains("jce-overlay")) {
+          const svgClone = child.cloneNode(true);
+          this.filterSelectionEdges(canvas, svgClone, targetIds);
+          world.appendChild(svgClone);
+        } else {
+          const svgClone = child.cloneNode(true);
+          this.inlineSvgOverlayVars(child, svgClone);
+          world.appendChild(svgClone);
+        }
+      }
+    }
+    for (const node of targets) {
+      const clone = node.nodeEl.cloneNode(true);
+      clone.classList.remove("is-focused", "is-selected");
+      clone.querySelectorAll(
+        ".jce-lod-overlay, .jce-anchor, .canvas-node-resizer, .canvas-node-connection-point"
+      ).forEach((el) => el.remove());
+      if (!clone.style.transform && !clone.style.left) {
+        clone.style.transform = `translate(${node.x}px, ${node.y}px)`;
+      }
+      clone.style.width = `${node.width}px`;
+      clone.style.height = `${node.height}px`;
+      await this.inlineEmbeddedMedia(node.nodeEl, clone);
+      world.appendChild(clone);
+    }
+    stage.appendChild(world);
+    return stage;
+  }
+  inlineSvgOverlayVars(orig, clone) {
+    const cs = getComputedStyle(orig);
+    const left = orig.style.getPropertyValue("--jce-ov-left") || cs.getPropertyValue("--jce-ov-left");
+    const top = orig.style.getPropertyValue("--jce-ov-top") || cs.getPropertyValue("--jce-ov-top");
+    const w = orig.style.getPropertyValue("--jce-ov-w") || cs.getPropertyValue("--jce-ov-w");
+    const h = orig.style.getPropertyValue("--jce-ov-h") || cs.getPropertyValue("--jce-ov-h");
+    if (left) clone.style.left = left;
+    if (top) clone.style.top = top;
+    if (w) clone.style.width = w;
+    if (h) clone.style.height = h;
+    if (orig.classList.contains("jce-overlay")) {
+      clone.style.position = "absolute";
+      clone.style.overflow = "visible";
+    }
+  }
+  filterSelectionEdges(canvas, svgClone, selectedIds) {
+    const validEdgeIds = /* @__PURE__ */ new Set();
+    for (const edge of canvas.edges.values()) {
+      if (selectedIds.has(edge.from.node.id) && selectedIds.has(edge.to.node.id)) {
+        validEdgeIds.add(edge.id);
+      }
+    }
+    if (validEdgeIds.size === 0) {
+      svgClone.replaceChildren();
+      return;
+    }
+    svgClone.querySelectorAll("[data-edge-id]").forEach((el) => {
+      const id = el.getAttribute("data-edge-id");
+      if (id && !validEdgeIds.has(id)) el.remove();
+    });
+  }
+  async inlineEmbeddedMedia(origRoot, cloneRoot) {
+    const origCanvases = Array.from(origRoot.querySelectorAll("canvas"));
+    const cloneCanvases = Array.from(cloneRoot.querySelectorAll("canvas"));
+    for (let i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
+      try {
+        const dataUrl = origCanvases[i].toDataURL("image/png");
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.style.cssText = cloneCanvases[i].style.cssText;
+        img.width = origCanvases[i].width;
+        img.height = origCanvases[i].height;
+        cloneCanvases[i].replaceWith(img);
+      } catch {
+      }
+    }
+    const origImgs = Array.from(origRoot.querySelectorAll("img"));
+    const cloneImgs = Array.from(cloneRoot.querySelectorAll("img"));
+    await Promise.all(
+      cloneImgs.map(async (img, idx) => {
+        const src = img.getAttribute("src");
+        if (!src || src.startsWith("data:")) return;
+        let dataUrl = await this.toDataUrl(src);
+        if (!dataUrl && origImgs[idx]) {
+          dataUrl = this.imgElementToDataUrl(origImgs[idx]);
+        }
+        if (dataUrl) {
+          img.setAttribute("src", dataUrl);
+        } else {
+          img.removeAttribute("src");
+        }
+      })
+    );
+  }
+  imgElementToDataUrl(img) {
+    try {
+      if (!img.complete || img.naturalWidth === 0) return null;
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0);
+      return c.toDataURL("image/png");
+    } catch {
+      return null;
+    }
+  }
+  async toDataUrl(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  }
+  // ------------------------------------------------------------------ CSS & SVG
+  resolveThemeBg(canvas) {
+    const wrapperBg = getComputedStyle(canvas.wrapperEl).backgroundColor;
+    if (wrapperBg && wrapperBg !== "rgba(0, 0, 0, 0)" && wrapperBg !== "transparent") {
+      return wrapperBg;
+    }
+    const bodyBg = getComputedStyle(document.body).backgroundColor;
+    if (bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent") {
+      return bodyBg;
+    }
+    return document.body.classList.contains("theme-dark") ? "#1e1e1e" : "#ffffff";
+  }
+  collectRootClasses(canvas) {
+    const bodyCls = document.body.className;
+    const wrapperCls = canvas.wrapperEl.className.split(/\s+/).filter((c) => c && c !== "mod-zoomed-out" && c !== "jce-zoom-far").join(" ");
+    return `${bodyCls} ${wrapperCls}`.trim();
+  }
+  collectStylesText(canvas) {
+    const chunks = [];
+    const rootStyle = getComputedStyle(document.documentElement);
+    const bodyStyle = getComputedStyle(document.body);
+    const varDecls = [];
+    for (const styleObj of [rootStyle, bodyStyle]) {
+      for (let i = 0; i < styleObj.length; i++) {
+        const prop = styleObj[i];
+        if (prop.startsWith("--")) {
+          const val = styleObj.getPropertyValue(prop);
+          if (val) varDecls.push(`${prop}:${val};`);
+        }
+      }
+    }
+    if (varDecls.length > 0) {
+      chunks.push(`:root, body { ${varDecls.join("")} }`);
+    }
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        const rules = sheet.cssRules;
+        if (!rules) continue;
+        for (let i = 0; i < rules.length; i++) {
+          const text = rules[i].cssText;
+          if (text.startsWith("@font-face")) continue;
+          chunks.push(this.stripExternalCssUrls(text));
+        }
+      } catch {
+      }
+    }
+    const wrapperBg = this.resolveThemeBg(canvas);
+    chunks.push(`
+      html, body, .jce-export-stage {
+        margin: 0 !important;
+        padding: 0 !important;
+        background-image: none !important;
+        background-color: transparent !important;
+      }
+      .canvas-background { display: none !important; }
+      .canvas-node.is-focused .canvas-node-container {
+        box-shadow: var(--shadow-s, 0 1px 3px rgba(0,0,0,0.08)) !important;
+      }
+      .jce-export-root {
+        background-color: ${wrapperBg};
+      }
+    `);
+    return chunks.join("\n");
+  }
+  stripExternalCssUrls(css) {
+    return css.replace(/url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi, (match, _q, target) => {
+      const t = target.trim();
+      if (t.startsWith("data:") || t.startsWith("#")) return match;
+      return "none";
+    });
+  }
+  buildForeignObjectSvg(stageEl, cssText, rootClasses, bgColor, w, h) {
+    const serializer = new XMLSerializer();
+    const stageXhtml = serializer.serializeToString(stageEl);
+    const safeCss = cssText.replace(/\]\]>/g, "]]]]><![CDATA[>");
+    const bgStyle = bgColor === "transparent" ? "background: transparent;" : `background-color: ${bgColor};`;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
+      `<foreignObject x="0" y="0" width="${w}" height="${h}">`,
+      `<div xmlns="http://www.w3.org/1999/xhtml" class="${this.escapeAttr(rootClasses)}" style="width:${w}px;height:${h}px;overflow:hidden;${bgStyle}">`,
+      `<style>/*<![CDATA[*/
+${safeCss}
+/*]]>*/</style>`,
+      stageXhtml,
+      `</div>`,
+      `</foreignObject>`,
+      `</svg>`
+    ].join("");
+  }
+  escapeAttr(s) {
+    return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+  async rasterizeSvgToPng(svgMarkup, worldW, worldH, outW, outH, bgColor) {
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("SVG \u56FE\u50CF\u89E3\u6790\u5931\u8D25\uFF08\u53EF\u80FD\u662F\u6837\u5F0F\u6216\u5D4C\u5165\u8D44\u6E90\u683C\u5F0F\u5F02\u5E38\uFF09"));
+      el.src = url;
+    });
+    const outCanvas = document.createElement("canvas");
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+    const ctx = outCanvas.getContext("2d");
+    if (!ctx) throw new Error("2D canvas context unavailable");
+    if (bgColor !== "transparent") {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, outW, outH);
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, worldW, worldH, 0, 0, outW, outH);
+    return await new Promise((resolve, reject) => {
+      outCanvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("canvas.toBlob returned null"));
+      }, "image/png");
+    });
+  }
+  triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2e3);
+  }
+  timestamp() {
+    const d = /* @__PURE__ */ new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  }
+};
+
 // src/format.ts
 var import_view = require("@codemirror/view");
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var BUTTONS = [
   { id: "bold", glyph: "B", label: "\u7C97\u4F53 / Bold  \u2318B", group: 0 },
   { id: "italic", glyph: "I", label: "\u659C\u4F53 / Italic  \u2318I", group: 0 },
@@ -3265,7 +3748,7 @@ var FormatBar = class {
       el.setAttribute("aria-label", btn.label);
       if (btn.id === "bg") {
         el.classList.add("jce-fmt-icon");
-        (0, import_obsidian4.setIcon)(el, "paint-bucket");
+        (0, import_obsidian5.setIcon)(el, "paint-bucket");
       } else {
         const glyph = document.createElement("span");
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
@@ -3344,7 +3827,7 @@ var FormatBar = class {
     return Array.from(canvas.canvasEl.querySelectorAll(".canvas-node iframe"));
   }
   activeCanvas() {
-    const view = this.plugin.app.workspace.getActiveViewOfType(import_obsidian4.FileView);
+    const view = this.plugin.app.workspace.getActiveViewOfType(import_obsidian5.FileView);
     if (!view || view.getViewType() !== "canvas") return null;
     return view.canvas ?? null;
   }
@@ -3658,7 +4141,7 @@ function escapeRe(s) {
 }
 
 // src/minimap.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 var MAP_W = 208;
 var MAP_H = 136;
 var PAD = 10;
@@ -3721,7 +4204,7 @@ var MinimapController = class {
       cls: "jce-minimap-close",
       attr: { title: "\u9690\u85CF\u5C0F\u5730\u56FE / Hide minimap", "aria-label": "Hide minimap" }
     });
-    (0, import_obsidian5.setIcon)(closeBtn, "x");
+    (0, import_obsidian6.setIcon)(closeBtn, "x");
     const canvasEl = rootEl.createEl("canvas", { cls: "jce-minimap-canvas" });
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     canvasEl.width = Math.round(MAP_W * dpr);
@@ -3890,7 +4373,7 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 // src/toolbar.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/icons.ts
 var SVG_NS = "http://www.w3.org/2000/svg";
@@ -4131,7 +4614,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(SEARCH_TOOL)
       }
     });
-    (0, import_obsidian6.setIcon)(searchBtn, "search");
+    (0, import_obsidian7.setIcon)(searchBtn, "search");
     searchBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     searchBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -4148,7 +4631,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(MINIMAP_TOOL)
       }
     });
-    (0, import_obsidian6.setIcon)(minimapBtn, "map");
+    (0, import_obsidian7.setIcon)(minimapBtn, "map");
     minimapBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     minimapBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -4165,7 +4648,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(CHRONOS_TOOL)
       }
     });
-    (0, import_obsidian6.setIcon)(chronosBtn, "hourglass");
+    (0, import_obsidian7.setIcon)(chronosBtn, "hourglass");
     chronosBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     chronosBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -4181,7 +4664,7 @@ var CanvasToolbar = class {
         "aria-label": tooltip(OUTLINE_TOOL)
       }
     });
-    (0, import_obsidian6.setIcon)(outlineBtn, "list");
+    (0, import_obsidian7.setIcon)(outlineBtn, "list");
     outlineBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
     outlineBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -4221,7 +4704,7 @@ var CanvasToolbar = class {
 };
 
 // src/menus.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var PALETTE = [
   { id: "", label: "\u9ED8\u8BA4 / Default", swatch: "#d8d8d8" },
   { id: "1", label: "\u7EA2 / Red", swatch: "#fb464c" },
@@ -4284,7 +4767,7 @@ var ContextMenus = class {
     evt.stopPropagation();
     this.hide();
     const node = nodeFromWrapper(canvas, target);
-    const menu = new import_obsidian7.Menu();
+    const menu = new import_obsidian8.Menu();
     if (node) this.buildObjectMenu(menu, canvas, node);
     else this.buildBlankMenu(menu, canvas, canvas.posFromEvt(evt));
     this.open = menu;
@@ -4301,6 +4784,10 @@ var ContextMenus = class {
         (item) => item.setTitle(menuLabel(meta)).setIcon(ICON_FOR[kind]).onClick(() => this.handlers.create(canvas, kind, at))
       );
     }
+    menu.addSeparator();
+    menu.addItem(
+      (item) => item.setTitle(menuLabel(MENU.exportCanvas)).setIcon("download").onClick(() => this.handlers.exportPng(canvas))
+    );
   }
   buildObjectMenu(menu, canvas, node) {
     menu.addItem((item) => {
@@ -4367,6 +4854,12 @@ var ContextMenus = class {
         (row) => row.setTitle(menuLabel(MENU.setTime)).setIcon("calendar").onClick(() => this.handlers.setCardTime(canvas, node))
       );
     }
+    const isMultiSelection = sel.length >= 2 && sel.some((n) => n.id === node.id);
+    const exportTargets = isMultiSelection ? sel : [node];
+    const exportLabel = isMultiSelection ? MENU.exportSelection : isGroupNode(node) ? MENU.exportSection : MENU.exportCard;
+    menu.addItem(
+      (item) => item.setTitle(menuLabel(exportLabel)).setIcon("download").onClick(() => this.handlers.exportPng(canvas, exportTargets))
+    );
     menu.addItem(
       (item) => item.setTitle(menuLabel(MENU.remove)).setIcon("trash").onClick(() => this.handlers.remove(canvas, node.id))
     );
@@ -4395,7 +4888,7 @@ function canvasFromWrapper(plugin, wrapper) {
     const view = leaf.view;
     if (view.canvas?.wrapperEl === wrapper) return view.canvas;
   }
-  const active = plugin.app.workspace.getActiveViewOfType(import_obsidian7.FileView);
+  const active = plugin.app.workspace.getActiveViewOfType(import_obsidian8.FileView);
   if (active && active.getViewType() === "canvas") {
     return active.canvas ?? null;
   }
@@ -4411,7 +4904,7 @@ function nodeFromWrapper(canvas, target) {
 }
 
 // src/mindmap.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/objects.ts
 var import_view2 = require("@codemirror/view");
@@ -4717,13 +5210,13 @@ function collectDescendants(tree, id) {
   return out;
 }
 function activeCanvasView(plugin) {
-  const view = plugin.app.workspace.getActiveViewOfType(import_obsidian8.FileView);
+  const view = plugin.app.workspace.getActiveViewOfType(import_obsidian9.FileView);
   if (!view || view.getViewType() !== "canvas") return null;
   return view.canvas ?? null;
 }
 
 // src/outline.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/outline-sort.ts
 var CN_DIGIT = {
@@ -4939,7 +5432,7 @@ var SectionOutlineController = class {
     const headTop = head.createDiv({ cls: "jce-outline-head-top" });
     const titleWrap = headTop.createDiv({ cls: "jce-outline-title-wrap" });
     const listIcon = titleWrap.createSpan({ cls: "jce-outline-title-icon" });
-    (0, import_obsidian9.setIcon)(listIcon, "list");
+    (0, import_obsidian10.setIcon)(listIcon, "list");
     titleWrap.createSpan({ cls: "jce-outline-title", text: "\u5206\u533A\u5927\u7EB2" });
     st.countBadgeEl = titleWrap.createSpan({ cls: "jce-outline-count-badge", text: "0" });
     const headBtns = headTop.createDiv({ cls: "jce-outline-head-btns" });
@@ -4949,7 +5442,7 @@ var SectionOutlineController = class {
       attr: { "aria-label": "\u7F29\u653E\u4E3A\u80F6\u56CA / \u5C55\u5F00" }
     });
     const chevSpan = compactBtn.createSpan({ cls: "jce-outline-chev" });
-    (0, import_obsidian9.setIcon)(chevSpan, "chevron-up");
+    (0, import_obsidian10.setIcon)(chevSpan, "chevron-up");
     compactBtn.addEventListener("pointerdown", (evt) => evt.stopPropagation());
     compactBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -4962,7 +5455,7 @@ var SectionOutlineController = class {
       cls: "jce-outline-icon-btn jce-outline-close-btn",
       attr: { "aria-label": "\u5173\u95ED\u5927\u7EB2 (Esc)" }
     });
-    (0, import_obsidian9.setIcon)(closeBtn, "x");
+    (0, import_obsidian10.setIcon)(closeBtn, "x");
     closeBtn.addEventListener("pointerdown", (evt) => evt.stopPropagation());
     closeBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -5043,7 +5536,7 @@ var SectionOutlineController = class {
         }
       });
       const handle = row.createSpan({ cls: "jce-outline-drag-handle" });
-      (0, import_obsidian9.setIcon)(handle, "grip-vertical");
+      (0, import_obsidian10.setIcon)(handle, "grip-vertical");
       row.createSpan({ cls: "jce-outline-item-label", text: entry.label });
       const right2 = row.createDiv({ cls: "jce-outline-item-right" });
       if (entry.folded) {
@@ -5315,7 +5808,7 @@ var PdfPasteController = class {
 };
 
 // src/search.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var CanvasSearchBar = class {
   constructor(opts = {}) {
     this.opts = opts;
@@ -5370,7 +5863,7 @@ var CanvasSearchBar = class {
     barEl.hidden = true;
     const row = barEl.createDiv({ cls: "jce-search-row" });
     const icon = row.createSpan({ cls: "jce-search-icon" });
-    (0, import_obsidian10.setIcon)(icon, "search");
+    (0, import_obsidian11.setIcon)(icon, "search");
     const inputEl = row.createEl("input", {
       type: "text",
       cls: "jce-search-input",
@@ -5382,19 +5875,19 @@ var CanvasSearchBar = class {
       cls: "jce-search-nav",
       attr: { title: "\u4E0A\u4E00\u4E2A / Previous (Shift+Enter)", "aria-label": "Previous" }
     });
-    (0, import_obsidian10.setIcon)(prevBtn, "chevron-up");
+    (0, import_obsidian11.setIcon)(prevBtn, "chevron-up");
     const nextBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-nav",
       attr: { title: "\u4E0B\u4E00\u4E2A / Next (Enter)", "aria-label": "Next" }
     });
-    (0, import_obsidian10.setIcon)(nextBtn, "chevron-down");
+    (0, import_obsidian11.setIcon)(nextBtn, "chevron-down");
     const closeBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-close",
       attr: { title: "\u5173\u95ED / Close (Esc)", "aria-label": "Close" }
     });
-    (0, import_obsidian10.setIcon)(closeBtn, "x");
+    (0, import_obsidian11.setIcon)(closeBtn, "x");
     const listEl = barEl.createDiv({ cls: "jce-search-list" });
     listEl.hidden = true;
     const state = {
@@ -5742,7 +6235,7 @@ var TOOL_KEYS = {
   g: "section",
   d: "todo"
 };
-var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
+var CanvasEnhancePlugin = class extends import_obsidian12.Plugin {
   constructor() {
     super(...arguments);
     this.keyScope = null;
@@ -5812,6 +6305,7 @@ var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
       }
     });
     this.pdfPaste = new PdfPasteController(this.chrome);
+    this.exporter = new CanvasPngExporter();
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -5845,6 +6339,14 @@ var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
       },
       chronosFocusNode: (canvas, node) => {
         this.chronos.focusNode(canvas, node);
+      },
+      exportPng: (canvas, targetNodes) => {
+        const file = this.canvasFile(canvas);
+        const isPartial = Array.isArray(targetNodes) && targetNodes.length > 0;
+        void this.exporter.exportPng(canvas, {
+          targetNodes,
+          fileName: file ? isPartial ? `${file.basename}-part` : file.basename : void 0
+        });
       }
     });
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
@@ -5878,7 +6380,7 @@ var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
       },
       true
     );
-    const scope = new import_obsidian11.Scope(this.app.scope);
+    const scope = new import_obsidian12.Scope(this.app.scope);
     scope.register(["Mod"], "g", (evt) => {
       const canvas = activeCanvas(this.app);
       if (!canvas || isTyping(evt.target)) return;
@@ -6009,6 +6511,38 @@ var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
       }
     });
     this.addCommand({
+      id: "export-canvas-png",
+      name: "\u5BFC\u51FA\u753B\u5E03\u4E3A PNG / Export canvas as PNG",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) {
+          const file = this.canvasFile(canvas);
+          void this.exporter.exportPng(canvas, {
+            selectionOnly: false,
+            fileName: file?.basename
+          });
+        }
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "export-selection-png",
+      name: "\u5BFC\u51FA\u9009\u4E2D\u533A\u57DF\u4E3A PNG / Export selection as PNG",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas || !selectedNodes(canvas).length) return false;
+        if (!checking) {
+          const file = this.canvasFile(canvas);
+          void this.exporter.exportPng(canvas, {
+            selectionOnly: true,
+            fileName: file ? `${file.basename}-selection` : void 0
+          });
+        }
+        return true;
+      }
+    });
+    this.addCommand({
       id: "add-mindmap-child",
       name: "\u65B0\u5EFA\u5BFC\u56FE\u5B50\u8282\u70B9 / Add mindmap child",
       checkCallback: (checking) => {
@@ -6098,14 +6632,17 @@ var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
   }
-  canvasFilePath(canvas) {
+  canvasFile(canvas) {
     for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
       if (canvasOf(leaf) === canvas) {
         const file = leaf.view.file;
-        return file?.path ?? null;
+        return file ?? null;
       }
     }
     return null;
+  }
+  canvasFilePath(canvas) {
+    return this.canvasFile(canvas)?.path ?? null;
   }
   /** Keep the overlay honest while nodes are being dragged. */
   patchFrame(canvas) {
@@ -6428,7 +6965,7 @@ function canvasOf(leaf) {
   return view.canvas ?? null;
 }
 function activeCanvas(app) {
-  const view = app.workspace.getActiveViewOfType(import_obsidian11.FileView);
+  const view = app.workspace.getActiveViewOfType(import_obsidian12.FileView);
   if (!view || view.getViewType() !== "canvas") return null;
   return view.canvas ?? null;
 }

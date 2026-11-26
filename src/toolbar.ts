@@ -8,7 +8,15 @@
  */
 
 import { setIcon } from "obsidian";
-import { CHRONOS_TOOL, MINIMAP_TOOL, OUTLINE_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
+import {
+  CHRONOS_TOOL,
+  MINIMAP_TOOL,
+  OUTLINE_TOOL,
+  SEARCH_TOOL,
+  TOOLS,
+  ToolId,
+  tooltip,
+} from "./copy";
 import { renderToolIcon } from "./icons";
 
 export class CanvasToolbar {

@@ -38,6 +38,7 @@ type Handlers = {
   toggleCardFold: (canvas: CanvasLike, nodeId: string) => void;
   setCardTime: (canvas: CanvasLike, node: NodeLike) => void;
   chronosFocusNode: (canvas: CanvasLike, node: NodeLike) => void;
+  exportPng: (canvas: CanvasLike, targetNodes?: NodeLike[]) => void;
 };
 
 const PALETTE: { id: string; label: string; swatch: string }[] = [
@@ -136,6 +137,13 @@ export class ContextMenus {
           .onClick(() => this.handlers.create(canvas, kind, at))
       );
     }
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(menuLabel(MENU.exportCanvas))
+        .setIcon("download")
+        .onClick(() => this.handlers.exportPng(canvas))
+    );
   }
 
   private buildObjectMenu(menu: Menu, canvas: CanvasLike, node: NodeLike): void {
@@ -239,6 +247,21 @@ export class ContextMenus {
           .onClick(() => this.handlers.setCardTime(canvas, node))
       );
     }
+
+    const isMultiSelection = sel.length >= 2 && sel.some((n) => n.id === node.id);
+    const exportTargets = isMultiSelection ? sel : [node];
+    const exportLabel = isMultiSelection
+      ? MENU.exportSelection
+      : isGroupNode(node)
+        ? MENU.exportSection
+        : MENU.exportCard;
+
+    menu.addItem((item) =>
+      item
+        .setTitle(menuLabel(exportLabel))
+        .setIcon("download")
+        .onClick(() => this.handlers.exportPng(canvas, exportTargets))
+    );
 
     menu.addItem((item) =>
       item
