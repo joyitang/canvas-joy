@@ -1,6 +1,6 @@
 {
   "name": "canvas-joy",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Heptabase-style visual thinking for Obsidian Canvas",
   "main": "main.js",
   "scripts": {

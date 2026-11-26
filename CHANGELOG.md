@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1
+
+- [x] 修复 `export.ts` 静态样式赋值以符合 Obsidian 官方插件规范（改用 `setCssProps`）
+
 ## 1.7.0
 
 - [x] 分区大纲（Section Outline）：左侧工具栏与 `⌘⇧O` 一键唤起悬浮大纲，仅展示顶层父分区，支持点击平滑定位、拖拽重排与缩放为紧凑胶囊
