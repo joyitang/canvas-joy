@@ -383,6 +383,16 @@
   padding: 14px 16px;
 }
 
+.canvas-wrapper .canvas-node.jce-note.is-themed > .canvas-node-container {
+  background: var(--jce-note-bg, color-mix(in srgb, var(--canvas-color) 14%, #ffffff)) !important;
+  border-color: color-mix(in oklch, var(--canvas-color) 70%, transparent) !important;
+}
+
+.canvas-wrapper .canvas-node.jce-note.is-themed:is(.is-selected, .is-focused) > .canvas-node-container {
+  border-color: var(--canvas-color) !important;
+  box-shadow: inset 0 0 0 1px var(--canvas-color), 0 0 0 2px var(--canvas-color) !important;
+}
+
 .canvas-wrapper .canvas-node.jce-note .canvas-node-content {
   background: transparent !important;
 }
