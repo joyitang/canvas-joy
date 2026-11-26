@@ -1,7 +1,7 @@
 {
   "id": "canvas-joy",
   "name": "Canvas Joy",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "minAppVersion": "1.5.0",
   "description": "Heptabase-style visual thinking for Canvas: tinted note cards, collapsible cards and sections, focus mode, in-canvas search, minimap, alignment bar, mindmaps, and text formatting.",
   "author": "Joy",
