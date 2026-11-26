@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => CanvasEnhancePlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/bridge.ts
 var edgeCtors = /* @__PURE__ */ new WeakMap();
@@ -93,7 +93,7 @@ function nodeFromEvent(canvas, evt) {
 function isInsideCanvasUi(el) {
   if (!el) return false;
   return !!el.closest(
-    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-chronos-bar, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
+    ".jce-toolbar, .jce-format-bar, .jce-menu, .jce-search-bar, .jce-focus-pill, .jce-fold-btn, .jce-collapsed-bar, .jce-align-bar, .jce-minimap, .jce-chronos-bar, .jce-outline-drawer, .jce-edge-handle, .menu, .modal-container, .canvas-controls, .canvas-card-menu, .canvas-menu"
   );
 }
 function commit(canvas) {
@@ -206,6 +206,7 @@ var TOOLS = {
 var SEARCH_TOOL = { id: "search", zh: "\u641C\u7D22", en: "Search", key: "\u2318F" };
 var MINIMAP_TOOL = { id: "minimap", zh: "\u5C0F\u5730\u56FE", en: "Minimap" };
 var CHRONOS_TOOL = { id: "chronos", zh: "\u65F6\u95F4\u8F74", en: "Chronos" };
+var OUTLINE_TOOL = { id: "outline", zh: "\u5206\u533A\u5927\u7EB2", en: "Section Outline", key: "\u2318\u21E7O" };
 var ALIGN_OPS = {
   left: { zh: "\u5DE6\u5BF9\u9F50", en: "Align left" },
   centerX: { zh: "\u6C34\u5E73\u5C45\u4E2D", en: "Align horizontal centers" },
@@ -4086,11 +4087,12 @@ function renderToolIcon(host, id) {
 
 // src/toolbar.ts
 var CanvasToolbar = class {
-  constructor(onPick, onSearch, onMinimap, onChronos) {
+  constructor(onPick, onSearch, onMinimap, onChronos, onOutline) {
     this.onPick = onPick;
     this.onSearch = onSearch;
     this.onMinimap = onMinimap;
     this.onChronos = onChronos;
+    this.onOutline = onOutline;
     this.current = "select";
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
@@ -4171,12 +4173,30 @@ var CanvasToolbar = class {
       this.onChronos();
     });
     this.chronosBtn = chronosBtn;
+    const outlineBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-outline",
+      attr: {
+        "data-tool": "outline",
+        "aria-label": tooltip(OUTLINE_TOOL)
+      }
+    });
+    (0, import_obsidian6.setIcon)(outlineBtn, "list");
+    outlineBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    outlineBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onOutline();
+    });
+    this.outlineBtn = outlineBtn;
     this.setActive("select");
   }
   setActive(id) {
     this.current = id;
     this.el.querySelectorAll(".jce-tool").forEach((btn) => {
-      if (btn === this.searchBtn || btn === this.minimapBtn || btn === this.chronosBtn) return;
+      if (btn === this.searchBtn || btn === this.minimapBtn || btn === this.chronosBtn || btn === this.outlineBtn) {
+        return;
+      }
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
   }
@@ -4188,6 +4208,9 @@ var CanvasToolbar = class {
   }
   setChronosActive(active) {
     this.chronosBtn.classList.toggle("is-active", active);
+  }
+  setOutlineActive(active) {
+    this.outlineBtn.classList.toggle("is-active", active);
   }
   getActive() {
     return this.current;
@@ -4699,8 +4722,579 @@ function activeCanvasView(plugin) {
   return view.canvas ?? null;
 }
 
-// src/search.ts
+// src/outline.ts
 var import_obsidian9 = require("obsidian");
+
+// src/outline-sort.ts
+var CN_DIGIT = {
+  \u96F6: 0,
+  "\u3007": 0,
+  \u4E00: 1,
+  \u4E8C: 2,
+  \u4E24: 2,
+  \u4E09: 3,
+  \u56DB: 4,
+  \u4E94: 5,
+  \u516D: 6,
+  \u4E03: 7,
+  \u516B: 8,
+  \u4E5D: 9
+};
+function parseChineseNumber(raw) {
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return Number(s);
+  let total = 0;
+  let current = 0;
+  let matched = false;
+  for (const ch of s) {
+    if (ch in CN_DIGIT) {
+      current = CN_DIGIT[ch];
+      matched = true;
+    } else if (ch === "\u5341") {
+      total += (current || 1) * 10;
+      current = 0;
+      matched = true;
+    } else if (ch === "\u767E") {
+      total += (current || 1) * 100;
+      current = 0;
+      matched = true;
+    } else if (ch === "\u5343") {
+      total += (current || 1) * 1e3;
+      current = 0;
+      matched = true;
+    } else {
+      return null;
+    }
+  }
+  if (!matched) return null;
+  return total + current;
+}
+var FRONT_MATTER_RE = /^(?:导言|序言|序章|前言|自序|译序|绪论|引言)/;
+var BACK_MATTER_RE = /^(?:结语|后记|跋|附录|专业术语表|术语表|索引|参考文献)/;
+var CHAPTER_PREFIX_RE = /^(?:第([零〇一二两三四五六七八九十百千0-9]+)[章编部篇回节]|Ch(?:apter)?\.?\s*(\d+)|Part\s*(\d+)|(\d+)(?:\.\d+)?[\s.、:：\-])/i;
+function naturalRank(label) {
+  const s = label.trim();
+  if (FRONT_MATTER_RE.test(s)) return { bucket: 0, num: 0, text: s };
+  if (BACK_MATTER_RE.test(s)) return { bucket: 3, num: 0, text: s };
+  const m = CHAPTER_PREFIX_RE.exec(s);
+  if (m) {
+    const rawNum = m[1] ?? m[2] ?? m[3] ?? m[4] ?? "";
+    const parsed = parseChineseNumber(rawNum);
+    if (parsed !== null) {
+      return { bucket: 1, num: parsed, text: s };
+    }
+  }
+  return { bucket: 2, num: 0, text: s };
+}
+function compareSectionNames(a, b) {
+  const ra = naturalRank(a);
+  const rb = naturalRank(b);
+  if (ra.bucket !== rb.bucket) return ra.bucket - rb.bucket;
+  if (ra.num !== rb.num) return ra.num - rb.num;
+  return ra.text.localeCompare(rb.text, "zh-CN", { numeric: true, sensitivity: "base" });
+}
+function sortSections(entries, mode, customOrder) {
+  const list = entries.slice();
+  if (mode === "name") {
+    list.sort((a, b) => compareSectionNames(a.label, b.label) || a.creationIndex - b.creationIndex);
+    return list;
+  }
+  if (customOrder && customOrder.length > 0) {
+    const rank = /* @__PURE__ */ new Map();
+    customOrder.forEach((id, idx) => rank.set(id, idx));
+    list.sort((a, b) => {
+      const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if (ra !== rb) return ra - rb;
+      return a.creationIndex - b.creationIndex;
+    });
+    return list;
+  }
+  list.sort((a, b) => a.creationIndex - b.creationIndex);
+  return list;
+}
+function reorderIds(currentIds, dragId, targetId, placeAfter) {
+  if (dragId === targetId) return currentIds.slice();
+  const next = currentIds.filter((id) => id !== dragId);
+  const idx = next.indexOf(targetId);
+  if (idx === -1) {
+    next.push(dragId);
+    return next;
+  }
+  next.splice(placeAfter ? idx + 1 : idx, 0, dragId);
+  return next;
+}
+
+// src/outline.ts
+var SectionOutlineController = class {
+  constructor(opts) {
+    this.opts = opts;
+    this.states = /* @__PURE__ */ new Map();
+    this.pulseTimers = /* @__PURE__ */ new WeakMap();
+    this.animTimers = /* @__PURE__ */ new WeakMap();
+    this.draggingId = null;
+  }
+  isOpen(canvas) {
+    return this.states.get(canvas)?.drawerOpen === true;
+  }
+  toggle(canvas) {
+    const st = this.ensureState(canvas);
+    st.drawerOpen = !st.drawerOpen;
+    if (st.drawerOpen) st.compact = false;
+    this.opts.onOpenChange?.(canvas, st.drawerOpen);
+    this.render(canvas, true);
+    return st.drawerOpen;
+  }
+  close(canvas) {
+    const st = this.states.get(canvas);
+    if (!st || !st.drawerOpen) return;
+    st.drawerOpen = false;
+    this.opts.onOpenChange?.(canvas, false);
+    this.render(canvas, true);
+  }
+  sync(canvas) {
+    this.render(canvas, false);
+  }
+  detach(canvas) {
+    const st = this.states.get(canvas);
+    if (!st) return;
+    st.drawerEl?.remove();
+    this.states.delete(canvas);
+  }
+  destroy() {
+    for (const canvas of Array.from(this.states.keys())) {
+      this.detach(canvas);
+    }
+  }
+  // ---------------------------------------------------------------- internals
+  ensureState(canvas) {
+    let st = this.states.get(canvas);
+    if (!st) {
+      st = {
+        drawerOpen: false,
+        compact: false,
+        activeSectionId: null,
+        drawerEl: null,
+        countBadgeEl: null,
+        listEl: null,
+        lastListSig: ""
+      };
+      this.states.set(canvas, st);
+    }
+    return st;
+  }
+  hostOf(canvas) {
+    return canvas.wrapperEl.closest(".view-content") ?? canvas.wrapperEl;
+  }
+  collectSections(canvas) {
+    const entries = [];
+    let idx = 0;
+    for (const node of canvas.nodes.values()) {
+      if (!isGroupNode(node)) continue;
+      const rawLabel = String(node.getData().label ?? node.label ?? "").trim();
+      const label = rawLabel || "Section";
+      const folded = isCardFolded(node);
+      const inside = nodesInsideGroup(canvas, node);
+      entries.push({
+        id: node.id,
+        label,
+        cardCount: inside.length,
+        folded,
+        creationIndex: idx++
+      });
+    }
+    return entries;
+  }
+  ensureShell(canvas, host, st) {
+    if (st.drawerEl && host.contains(st.drawerEl)) return st.drawerEl;
+    host.querySelectorAll(".jce-outline-drawer").forEach((el) => el.remove());
+    st.drawerEl?.remove();
+    const drawer = host.createDiv({ cls: "jce-outline-drawer" });
+    drawer.addEventListener("mousedown", (evt) => evt.stopPropagation());
+    drawer.addEventListener("pointerdown", (evt) => evt.stopPropagation());
+    drawer.addEventListener("wheel", (evt) => evt.stopPropagation(), { passive: true });
+    const head = drawer.createDiv({ cls: "jce-outline-head" });
+    const headTop = head.createDiv({ cls: "jce-outline-head-top" });
+    const titleWrap = headTop.createDiv({ cls: "jce-outline-title-wrap" });
+    const listIcon = titleWrap.createSpan({ cls: "jce-outline-title-icon" });
+    (0, import_obsidian9.setIcon)(listIcon, "list");
+    titleWrap.createSpan({ cls: "jce-outline-title", text: "\u5206\u533A\u5927\u7EB2" });
+    st.countBadgeEl = titleWrap.createSpan({ cls: "jce-outline-count-badge", text: "0" });
+    const headBtns = headTop.createDiv({ cls: "jce-outline-head-btns" });
+    const compactBtn = headBtns.createEl("button", {
+      type: "button",
+      cls: "jce-outline-icon-btn jce-outline-compact-btn",
+      attr: { "aria-label": "\u7F29\u653E\u4E3A\u80F6\u56CA / \u5C55\u5F00" }
+    });
+    const chevSpan = compactBtn.createSpan({ cls: "jce-outline-chev" });
+    (0, import_obsidian9.setIcon)(chevSpan, "chevron-up");
+    compactBtn.addEventListener("pointerdown", (evt) => evt.stopPropagation());
+    compactBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      st.compact = !st.compact;
+      this.animateCompact(drawer, st.compact);
+    });
+    const closeBtn = headBtns.createEl("button", {
+      type: "button",
+      cls: "jce-outline-icon-btn jce-outline-close-btn",
+      attr: { "aria-label": "\u5173\u95ED\u5927\u7EB2 (Esc)" }
+    });
+    (0, import_obsidian9.setIcon)(closeBtn, "x");
+    closeBtn.addEventListener("pointerdown", (evt) => evt.stopPropagation());
+    closeBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.close(canvas);
+    });
+    this.attachHeaderDrag(canvas, host, drawer, head, st);
+    const bodyWrap = drawer.createDiv({ cls: "jce-outline-body-wrap" });
+    const bodyInner = bodyWrap.createDiv({ cls: "jce-outline-body-inner" });
+    st.listEl = bodyInner.createDiv({ cls: "jce-outline-list" });
+    st.drawerEl = drawer;
+    return drawer;
+  }
+  animateCompact(drawer, compact) {
+    const prev = this.animTimers.get(drawer);
+    if (prev) window.clearTimeout(prev);
+    drawer.classList.add("is-animating");
+    drawer.classList.toggle("is-compact", compact);
+    const t = window.setTimeout(() => {
+      drawer.classList.remove("is-animating");
+      this.animTimers.delete(drawer);
+    }, 260);
+    this.animTimers.set(drawer, t);
+  }
+  render(canvas, force) {
+    const host = this.hostOf(canvas);
+    if (!host) return;
+    const st = this.ensureState(canvas);
+    if (!st.drawerOpen && !st.drawerEl) return;
+    const drawer = this.ensureShell(canvas, host, st);
+    const filePath = this.opts.getFilePath(canvas);
+    const prefs = filePath ? this.opts.getPrefs(filePath) : {};
+    if (!st.drawerOpen) {
+      drawer.classList.remove("is-open");
+      return;
+    }
+    this.applyDrawerPos(host, drawer, prefs.pos);
+    drawer.classList.toggle("is-compact", st.compact);
+    if (!drawer.classList.contains("is-open")) {
+      void drawer.offsetHeight;
+      drawer.classList.add("is-open");
+    }
+    const rawEntries = this.collectSections(canvas);
+    const entries = sortSections(rawEntries, "order", prefs.customOrder);
+    const selGroup = selectedNodes(canvas).find((n) => isGroupNode(n));
+    if (selGroup) st.activeSectionId = selGroup.id;
+    else if (st.activeSectionId && !canvas.nodes.has(st.activeSectionId)) {
+      st.activeSectionId = null;
+    }
+    const sig = [
+      filePath ?? "",
+      prefs.customOrder?.join(",") ?? "",
+      st.activeSectionId ?? "",
+      entries.map((e) => `${e.id}:${e.label}:${e.cardCount}:${e.folded ? 1 : 0}`).join("|")
+    ].join("#");
+    if (!force && sig === st.lastListSig) return;
+    st.lastListSig = sig;
+    if (st.countBadgeEl) st.countBadgeEl.textContent = String(entries.length);
+    if (st.listEl) this.renderList(canvas, st, st.listEl, filePath, entries);
+  }
+  renderList(canvas, st, list, filePath, entries) {
+    list.empty();
+    if (entries.length === 0) {
+      list.createDiv({
+        cls: "jce-outline-empty",
+        text: "\u5F53\u524D\u753B\u5E03\u6682\u65E0\u5206\u533A\uFF0C\u6309 G \u65B0\u5EFA\u5206\u533A\u540E\u4F1A\u81EA\u52A8\u663E\u793A\u5728\u8FD9\u91CC\u3002"
+      });
+      return;
+    }
+    const currentIds = entries.map((e) => e.id);
+    for (const entry of entries) {
+      const isActive = st.activeSectionId === entry.id;
+      const row = list.createDiv({
+        cls: `jce-outline-item${isActive ? " is-active" : ""}${entry.folded ? " is-folded" : ""}`,
+        attr: {
+          "data-section-id": entry.id,
+          draggable: "true"
+        }
+      });
+      const handle = row.createSpan({ cls: "jce-outline-drag-handle" });
+      (0, import_obsidian9.setIcon)(handle, "grip-vertical");
+      row.createSpan({ cls: "jce-outline-item-label", text: entry.label });
+      const right2 = row.createDiv({ cls: "jce-outline-item-right" });
+      if (entry.folded) {
+        right2.createSpan({ cls: "jce-outline-folded-tag", text: "\u5DF2\u6298\u53E0" });
+      }
+      right2.createSpan({
+        cls: "jce-outline-item-count",
+        text: String(entry.cardCount)
+      });
+      row.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.jumpToSection(canvas, st, entry.id);
+      });
+      row.addEventListener("dragstart", (evt) => {
+        this.draggingId = entry.id;
+        row.classList.add("is-dragging");
+        if (evt.dataTransfer) {
+          evt.dataTransfer.effectAllowed = "move";
+          evt.dataTransfer.setData("text/plain", entry.id);
+        }
+      });
+      row.addEventListener("dragend", () => {
+        this.draggingId = null;
+        row.classList.remove("is-dragging");
+        list.querySelectorAll(".is-drop-before, .is-drop-after").forEach((el) => {
+          el.classList.remove("is-drop-before", "is-drop-after");
+        });
+      });
+      row.addEventListener("dragover", (evt) => {
+        if (!this.draggingId || this.draggingId === entry.id) return;
+        evt.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const after = evt.clientY > rect.top + rect.height / 2;
+        row.classList.toggle("is-drop-after", after);
+        row.classList.toggle("is-drop-before", !after);
+      });
+      row.addEventListener("dragleave", () => {
+        row.classList.remove("is-drop-before", "is-drop-after");
+      });
+      row.addEventListener("drop", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const dragId = this.draggingId || evt.dataTransfer?.getData("text/plain") || "";
+        this.draggingId = null;
+        if (!dragId || dragId === entry.id || !filePath) return;
+        const rect = row.getBoundingClientRect();
+        const after = evt.clientY > rect.top + rect.height / 2;
+        const nextOrder = reorderIds(currentIds, dragId, entry.id, after);
+        const curPrefs = this.opts.getPrefs(filePath);
+        this.opts.setPrefs(filePath, {
+          ...curPrefs,
+          sortMode: "order",
+          customOrder: nextOrder
+        });
+        this.render(canvas, true);
+      });
+    }
+  }
+  applyDrawerPos(host, drawer, pos) {
+    if (!pos) {
+      drawer.setCssProps({ "--jce-outline-x": "66px", "--jce-outline-y": "14px" });
+      return;
+    }
+    const maxX = Math.max(12, host.clientWidth - Math.min(260, host.clientWidth - 24) - 12);
+    const maxY = Math.max(12, host.clientHeight - 52);
+    const x = Math.round(Math.max(12, Math.min(pos.x, maxX)));
+    const y = Math.round(Math.max(12, Math.min(pos.y, maxY)));
+    drawer.setCssProps({ "--jce-outline-x": `${x}px`, "--jce-outline-y": `${y}px` });
+  }
+  attachHeaderDrag(canvas, host, drawer, head, st) {
+    head.addEventListener("pointerdown", (evt) => {
+      if (evt.button !== 0) return;
+      if (evt.target?.closest("button")) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const hostRect = host.getBoundingClientRect();
+      const drawerRect = drawer.getBoundingClientRect();
+      const startX = evt.clientX;
+      const startY = evt.clientY;
+      const origX = drawerRect.left - hostRect.left;
+      const origY = drawerRect.top - hostRect.top;
+      let moved = false;
+      let latestPos = { x: Math.round(origX), y: Math.round(origY) };
+      drawer.classList.add("is-moving");
+      const onMove = (e) => {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!moved && Math.hypot(dx, dy) > 4) moved = true;
+        if (!moved) return;
+        const maxX = Math.max(12, host.clientWidth - drawer.offsetWidth - 12);
+        const maxY = Math.max(12, host.clientHeight - drawer.offsetHeight - 12);
+        const nx = Math.round(Math.max(12, Math.min(origX + dx, maxX)));
+        const ny = Math.round(Math.max(12, Math.min(origY + dy, maxY)));
+        latestPos = { x: nx, y: ny };
+        drawer.setCssProps({ "--jce-outline-x": `${nx}px`, "--jce-outline-y": `${ny}px` });
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        drawer.classList.remove("is-moving");
+        const filePath = this.opts.getFilePath(canvas);
+        if (moved && filePath) {
+          const curPrefs = this.opts.getPrefs(filePath);
+          this.opts.setPrefs(filePath, { ...curPrefs, pos: latestPos });
+        } else if (!moved && st.compact) {
+          st.compact = false;
+          this.animateCompact(drawer, false);
+        }
+      };
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+    });
+  }
+  jumpToSection(canvas, st, sectionId) {
+    const node = canvas.nodes.get(sectionId);
+    if (!node) return;
+    st.activeSectionId = sectionId;
+    focusNodeInViewport(canvas, node);
+    canvas.selectOnly(node);
+    this.pulseNode(node);
+    this.render(canvas, true);
+  }
+  pulseNode(node) {
+    const el = node.nodeEl;
+    if (!el) return;
+    const prev = this.pulseTimers.get(node);
+    if (prev) window.clearTimeout(prev);
+    el.classList.remove("jce-outline-pulse");
+    requestAnimationFrame(() => {
+      el.classList.add("jce-outline-pulse");
+      const timer = window.setTimeout(() => {
+        el.classList.remove("jce-outline-pulse");
+        this.pulseTimers.delete(node);
+      }, 1250);
+      this.pulseTimers.set(node, timer);
+    });
+  }
+};
+
+// src/pdf-paste.ts
+var import_view3 = require("@codemirror/view");
+var CJK_END_RE = /[\u3400-\u9fff\uf900-\ufaff，、；：（《「『【]$/;
+var CJK_START_RE = /^[\u3400-\u9fff\uf900-\ufaff）》」』】]/;
+var SENTENCE_END_RE = /[。！？!?：:；;……”—」』"'.]$/;
+var STRUCTURAL_LINE_RE = /^\s*(?:#{1,6}\s|[-*+•]\s|\d+[.)、]\s|>\s|\|)/;
+function cleanPdfText(raw) {
+  const normalized = raw.replace(/\r\n?/g, "\n");
+  if (!normalized.includes("\n")) return { text: normalized, changed: false };
+  if (normalized.includes("```") || /\n\|?[-:\s]+\|[-:\s|]+\n/.test(normalized)) {
+    return { text: normalized, changed: false };
+  }
+  const lines = normalized.split("\n");
+  const out = [];
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      out.push("");
+      continue;
+    }
+    if (out.length === 0 || out[out.length - 1] === "") {
+      out.push(trimmed);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    const prevIsStructural = STRUCTURAL_LINE_RE.test(prev);
+    const curIsStructural = STRUCTURAL_LINE_RE.test(trimmed);
+    const prevEndedSentence = SENTENCE_END_RE.test(prev);
+    if (!prevIsStructural && !curIsStructural && !prevEndedSentence) {
+      if (/[A-Za-z]-$/.test(prev) && /^[a-z]/.test(trimmed)) {
+        out[out.length - 1] = prev.slice(0, -1) + trimmed;
+      } else if (CJK_END_RE.test(prev) || CJK_START_RE.test(trimmed)) {
+        out[out.length - 1] = prev + trimmed;
+      } else {
+        out[out.length - 1] = `${prev} ${trimmed}`;
+      }
+      changed = true;
+    } else {
+      out.push(trimmed);
+    }
+  }
+  const result = out.join("\n").replace(/\n{3,}/g, "\n\n");
+  return { text: result, changed: changed || result !== normalized };
+}
+var PdfPasteController = class {
+  constructor(chrome) {
+    this.chrome = chrome;
+    this.hookedDocs = /* @__PURE__ */ new WeakSet();
+  }
+  /** Hook an editing card iframe so pasting PDF text inside a card cleans broken line-wraps. */
+  hookEditorDoc(doc) {
+    if (this.hookedDocs.has(doc)) return;
+    this.hookedDocs.add(doc);
+    doc.addEventListener(
+      "paste",
+      (evt) => {
+        const cd = evt.clipboardData;
+        if (!cd || cd.files.length > 0) return;
+        const raw = cd.getData("text/plain");
+        if (!raw) return;
+        const { text, changed } = cleanPdfText(raw);
+        if (!changed) return;
+        const target = evt.target instanceof Element ? evt.target : doc.activeElement;
+        const cmContent = target?.closest?.(".cm-content") ?? doc.querySelector(".cm-content");
+        if (!(cmContent instanceof HTMLElement)) return;
+        let view = null;
+        try {
+          view = import_view3.EditorView.findFromDOM(cmContent);
+        } catch {
+          return;
+        }
+        if (!view) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        evt.stopImmediatePropagation();
+        const { from, to } = view.state.selection.main;
+        view.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length },
+          userEvent: "input.paste"
+        });
+      },
+      true
+    );
+  }
+  /**
+   * Handle paste on the Canvas itself (when not editing a card or typing in an input).
+   * Cleans PDF hard-wraps and creates a Note Card at viewport center.
+   */
+  onCanvasPaste(evt, canvas, isTypingNow) {
+    if (isTypingNow) return false;
+    const target = evt.target;
+    if (target && isInsideCanvasUi(target)) return false;
+    const cd = evt.clipboardData;
+    if (!cd || cd.files.length > 0) return false;
+    const types = Array.from(cd.types ?? []);
+    if (types.some((t) => t.includes("obsidian") || t.includes("canvas"))) return false;
+    const raw = cd.getData("text/plain");
+    if (!raw || !raw.trim()) return false;
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{"nodes":') || trimmed.startsWith('{"edges":')) return false;
+    const { text, changed } = cleanPdfText(raw);
+    if (!changed) return false;
+    evt.preventDefault();
+    evt.stopPropagation();
+    evt.stopImmediatePropagation();
+    const lineEstimate = Math.ceil(text.length / 26) + (text.match(/\n/g)?.length ?? 0);
+    const size = {
+      width: KIND_SIZE.note.width,
+      height: Math.max(KIND_SIZE.note.height, Math.min(440, 80 + lineEstimate * 24))
+    };
+    const pos = viewportCenter(canvas, size);
+    const node = canvas.createTextNode({
+      pos,
+      size,
+      text,
+      focus: false,
+      save: true
+    });
+    if (!node) return false;
+    tag(canvas, node, "note");
+    commit(canvas);
+    this.chrome.invalidate(canvas);
+    canvas.selectOnly(node);
+    return true;
+  }
+};
+
+// src/search.ts
+var import_obsidian10 = require("obsidian");
 var CanvasSearchBar = class {
   constructor(opts = {}) {
     this.opts = opts;
@@ -4755,7 +5349,7 @@ var CanvasSearchBar = class {
     barEl.hidden = true;
     const row = barEl.createDiv({ cls: "jce-search-row" });
     const icon = row.createSpan({ cls: "jce-search-icon" });
-    (0, import_obsidian9.setIcon)(icon, "search");
+    (0, import_obsidian10.setIcon)(icon, "search");
     const inputEl = row.createEl("input", {
       type: "text",
       cls: "jce-search-input",
@@ -4767,19 +5361,19 @@ var CanvasSearchBar = class {
       cls: "jce-search-nav",
       attr: { title: "\u4E0A\u4E00\u4E2A / Previous (Shift+Enter)", "aria-label": "Previous" }
     });
-    (0, import_obsidian9.setIcon)(prevBtn, "chevron-up");
+    (0, import_obsidian10.setIcon)(prevBtn, "chevron-up");
     const nextBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-nav",
       attr: { title: "\u4E0B\u4E00\u4E2A / Next (Enter)", "aria-label": "Next" }
     });
-    (0, import_obsidian9.setIcon)(nextBtn, "chevron-down");
+    (0, import_obsidian10.setIcon)(nextBtn, "chevron-down");
     const closeBtn = row.createEl("button", {
       type: "button",
       cls: "jce-search-close",
       attr: { title: "\u5173\u95ED / Close (Esc)", "aria-label": "Close" }
     });
-    (0, import_obsidian9.setIcon)(closeBtn, "x");
+    (0, import_obsidian10.setIcon)(closeBtn, "x");
     const listEl = barEl.createDiv({ cls: "jce-search-list" });
     listEl.hidden = true;
     const state = {
@@ -4941,7 +5535,7 @@ function kindBadge(node) {
 }
 
 // src/todo.ts
-var import_view3 = require("@codemirror/view");
+var import_view4 = require("@codemirror/view");
 var TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/;
 var TodoController = class {
   constructor(plugin) {
@@ -5049,7 +5643,7 @@ var TodoController = class {
 };
 function findView2(el) {
   try {
-    const view = import_view3.EditorView.findFromDOM(el);
+    const view = import_view4.EditorView.findFromDOM(el);
     if (view && view.state?.selection) return view;
   } catch {
   }
@@ -5127,7 +5721,7 @@ var TOOL_KEYS = {
   g: "section",
   d: "todo"
 };
-var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
+var CanvasEnhancePlugin = class extends import_obsidian11.Plugin {
   constructor() {
     super(...arguments);
     this.keyScope = null;
@@ -5140,6 +5734,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
   }
   async onload() {
     this.prefs = await this.loadData() ?? {};
+    if (!this.prefs.outlines) this.prefs.outlines = {};
     this.collapse = new CardCollapseController();
     this.zoomLod = new ZoomLodController();
     this.focus = new FocusController();
@@ -5171,6 +5766,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       this.minimap.sync(canvas);
       this.anchors.syncHandles(canvas);
       this.chronos.sync(canvas);
+      this.outline.sync(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
@@ -5182,6 +5778,19 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
         this.toolbars.get(canvas)?.setChronosActive(active);
       }
     });
+    this.outline = new SectionOutlineController({
+      getFilePath: (canvas) => this.canvasFilePath(canvas),
+      getPrefs: (filePath) => this.prefs.outlines?.[filePath] ?? {},
+      setPrefs: (filePath, next) => {
+        if (!this.prefs.outlines) this.prefs.outlines = {};
+        this.prefs.outlines[filePath] = next;
+        void this.saveData(this.prefs);
+      },
+      onOpenChange: (canvas, open) => {
+        this.toolbars.get(canvas)?.setOutlineActive(open);
+      }
+    });
+    this.pdfPaste = new PdfPasteController(this.chrome);
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -5220,8 +5829,35 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("file-open", () => window.setTimeout(() => this.sync(), 60)));
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (this.prefs.outlines && this.prefs.outlines[oldPath]) {
+          this.prefs.outlines[file.path] = this.prefs.outlines[oldPath];
+          delete this.prefs.outlines[oldPath];
+          void this.saveData(this.prefs);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (this.prefs.outlines && this.prefs.outlines[file.path]) {
+          delete this.prefs.outlines[file.path];
+          void this.saveData(this.prefs);
+        }
+      })
+    );
     this.registerDomEvent(window, "keydown", (evt) => this.onKey(evt), true);
-    const scope = new import_obsidian10.Scope(this.app.scope);
+    this.registerDomEvent(
+      window,
+      "paste",
+      (evt) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return;
+        this.pdfPaste.onCanvasPaste(evt, canvas, isTyping(evt.target));
+      },
+      true
+    );
+    const scope = new import_obsidian11.Scope(this.app.scope);
     scope.register(["Mod"], "g", (evt) => {
       const canvas = activeCanvas(this.app);
       if (!canvas || isTyping(evt.target)) return;
@@ -5233,6 +5869,12 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       const canvas = activeCanvas(this.app);
       if (!canvas || isTyping(evt.target)) return;
       this.search.open(canvas);
+      return false;
+    });
+    scope.register(["Mod", "Shift"], "o", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.outline.toggle(canvas);
       return false;
     });
     this.app.keymap.pushScope(scope);
@@ -5336,6 +5978,16 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       }
     });
     this.addCommand({
+      id: "toggle-section-outline",
+      name: "\u5207\u6362\u5206\u533A\u5927\u7EB2 / Toggle section outline",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.outline.toggle(canvas);
+        return true;
+      }
+    });
+    this.addCommand({
       id: "add-mindmap-child",
       name: "\u65B0\u5EFA\u5BFC\u56FE\u5B50\u8282\u70B9 / Add mindmap child",
       checkCallback: (checking) => {
@@ -5364,11 +6016,13 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
     this.minimap.destroy();
     this.anchors.destroy();
     this.chronos.destroy();
+    this.outline.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
       this.chronos.detach(canvas);
+      this.outline.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -5384,6 +6038,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       this.chrome.attach(canvas);
       this.anchors.attach(canvas);
       this.ensureToolbar(leaf, canvas);
+      this.outline.sync(canvas);
       this.hookFrames(canvas);
       this.patchFrame(canvas);
     }
@@ -5398,6 +6053,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
       this.chronos.detach(canvas);
+      this.outline.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -5412,12 +6068,23 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       (tool) => this.onTool(canvas, tool),
       () => this.search.toggle(canvas),
       () => this.minimap.toggle(this.toolbars.keys()),
-      () => this.chronos.toggle(canvas)
+      () => this.chronos.toggle(canvas),
+      () => this.outline.toggle(canvas)
     );
     bar.setMinimapActive(this.minimap.isOpen());
     bar.setChronosActive(this.chronos.isActive(canvas));
+    bar.setOutlineActive(this.outline.isOpen(canvas));
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
+  }
+  canvasFilePath(canvas) {
+    for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+      if (canvasOf(leaf) === canvas) {
+        const file = leaf.view.file;
+        return file?.path ?? null;
+      }
+    }
+    return null;
   }
   /** Keep the overlay honest while nodes are being dragged. */
   patchFrame(canvas) {
@@ -5428,6 +6095,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       original();
       this.chrome.schedule(canvas);
       this.minimap.sync(canvas);
+      this.outline.sync(canvas);
     };
   }
   /** Hooking iframes lets Tab create children while the caret is inside one. */
@@ -5443,6 +6111,7 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
         }
         if (!doc || this.hookedDocs.has(doc)) return;
         this.hookedDocs.add(doc);
+        this.pdfPaste.hookEditorDoc(doc);
         doc.addEventListener(
           "keydown",
           (evt) => {
@@ -5541,6 +6210,12 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
         this.chronos.close(canvas);
         return;
       }
+      if (this.outline.isOpen(canvas) && !isTyping(evt.target)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.outline.close(canvas);
+        return;
+      }
       this.setPlacing(null);
       this.connect.exit();
       this.formats.hide();
@@ -5548,6 +6223,14 @@ var CanvasEnhancePlugin = class extends import_obsidian10.Plugin {
       return;
     }
     if (evt.metaKey || evt.ctrlKey) {
+      if (evt.shiftKey && !evt.altKey && evt.key.toLowerCase() === "o") {
+        if (isTyping(evt.target)) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        evt.stopImmediatePropagation();
+        this.outline.toggle(canvas);
+        return;
+      }
       if (!evt.shiftKey && !evt.altKey) {
         const key = evt.key.toLowerCase();
         if (key === "f") {
@@ -5724,7 +6407,7 @@ function canvasOf(leaf) {
   return view.canvas ?? null;
 }
 function activeCanvas(app) {
-  const view = app.workspace.getActiveViewOfType(import_obsidian10.FileView);
+  const view = app.workspace.getActiveViewOfType(import_obsidian11.FileView);
   if (!view || view.getViewType() !== "canvas") return null;
   return view.canvas ?? null;
 }

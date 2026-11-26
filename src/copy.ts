@@ -18,6 +18,7 @@ export type ToolId = keyof typeof TOOLS;
 export const SEARCH_TOOL = { id: "search", zh: "搜索", en: "Search", key: "⌘F" } as const;
 export const MINIMAP_TOOL = { id: "minimap", zh: "小地图", en: "Minimap" } as const;
 export const CHRONOS_TOOL = { id: "chronos", zh: "时间轴", en: "Chronos" } as const;
+export const OUTLINE_TOOL = { id: "outline", zh: "分区大纲", en: "Section Outline", key: "⌘⇧O" } as const;
 
 export const ALIGN_OPS = {
   left: { zh: "左对齐", en: "Align left" },

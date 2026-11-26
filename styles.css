@@ -1488,3 +1488,366 @@
 .jce-pierce-blocker {
   pointer-events: none !important;
 }
+
+/* ------------------------------------------------ section outline (drawer) */
+
+.jce-outline-drawer {
+  position: absolute;
+  left: var(--jce-outline-x, 66px);
+  top: var(--jce-outline-y, 14px);
+  width: 244px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border, rgba(0, 0, 0, 0.1));
+  background: color-mix(in srgb, var(--background-primary, #ffffff) 95%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.11), 0 2px 6px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  user-select: none;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top left;
+  pointer-events: none;
+  transition:
+    width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms ease;
+}
+
+.jce-outline-drawer.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.jce-outline-drawer.is-moving {
+  transition: none;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16), 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+.jce-outline-drawer.is-compact {
+  width: 172px;
+  border-radius: 19px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.jce-outline-head {
+  height: 38px;
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: grab;
+  transition: border-color 200ms ease;
+}
+
+.jce-outline-drawer.is-compact .jce-outline-head {
+  border-bottom-color: transparent;
+}
+
+.jce-outline-drawer.is-moving .jce-outline-head {
+  cursor: grabbing;
+}
+
+.jce-outline-head-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jce-outline-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.jce-outline-drawer.is-compact .jce-outline-chev {
+  transform: rotate(180deg);
+}
+
+/* Smooth GPU-friendly expand / collapse body */
+.jce-outline-body-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+
+.jce-outline-drawer.is-compact .jce-outline-body-wrap {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.jce-outline-body-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jce-outline-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jce-outline-title-icon {
+  display: inline-flex;
+  color: var(--jce-accent, #6b8fbf);
+  flex-shrink: 0;
+}
+
+.jce-outline-title-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.jce-outline-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+.jce-outline-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--jce-accent-soft, rgba(107, 143, 191, 0.16));
+  color: var(--jce-accent, #6b8fbf);
+}
+
+.jce-outline-head-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.jce-outline-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.jce-outline-icon-btn:hover {
+  background: var(--background-modifier-hover) !important;
+  color: var(--text-normal);
+}
+
+.jce-outline-icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.jce-outline-sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.jce-outline-seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
+  gap: 2px;
+}
+
+.jce-outline-seg-btn {
+  height: 20px;
+  min-height: 0;
+  line-height: 1;
+  border: none;
+  border-radius: 4px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent !important;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.jce-outline-seg-btn.is-active {
+  background: var(--background-primary) !important;
+  color: var(--jce-accent, #6b8fbf);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.jce-outline-reset-btn {
+  height: 20px;
+  min-height: 0;
+  line-height: 1;
+  border: none;
+  background: transparent !important;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  padding: 0 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.jce-outline-reset-btn:hover {
+  color: var(--jce-accent, #6b8fbf);
+  background: var(--jce-accent-soft, rgba(107, 143, 191, 0.16)) !important;
+}
+
+.jce-outline-list {
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.jce-outline-drawer.is-compact .jce-outline-list,
+.jce-outline-drawer.is-animating .jce-outline-list {
+  overflow-y: hidden;
+}
+
+.jce-outline-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.jce-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 7px 5px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.jce-outline-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.jce-outline-item.is-active {
+  background: color-mix(in srgb, var(--jce-accent, #6b8fbf) 10%, transparent);
+  border-color: color-mix(in srgb, var(--jce-accent, #6b8fbf) 32%, transparent);
+}
+
+.jce-outline-item.is-folded .jce-outline-item-label {
+  color: var(--text-muted);
+}
+
+.jce-outline-item.is-dragging {
+  opacity: 0.45;
+}
+
+.jce-outline-item.is-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--jce-accent, #6b8fbf);
+}
+
+.jce-outline-item.is-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--jce-accent, #6b8fbf);
+}
+
+.jce-outline-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  opacity: 0.25;
+  cursor: grab;
+  flex-shrink: 0;
+  transition: opacity 120ms ease;
+}
+
+.jce-outline-item:hover .jce-outline-drag-handle {
+  opacity: 0.9;
+}
+
+.jce-outline-drag-handle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.jce-outline-item-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jce-outline-item.is-active .jce-outline-item-label {
+  font-weight: 650;
+}
+
+.jce-outline-item-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.jce-outline-folded-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-normal) 7%, transparent);
+  color: var(--text-muted);
+}
+
+.jce-outline-item-count {
+  min-width: 20px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--jce-accent-soft, rgba(107, 143, 191, 0.16));
+  color: var(--jce-accent, #6b8fbf);
+}
+
+/* Section highlight pulse when jumped from Outline */
+.canvas-node.jce-outline-pulse > .canvas-node-container {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--jce-accent, #6b8fbf) 45%, transparent) !important;
+  transition: box-shadow 220ms ease;
+}

@@ -30,6 +30,9 @@ import { CanvasToolbar } from "./toolbar";
 import { ContextMenus } from "./menus";
 import { MindmapController } from "./mindmap";
 import { createObject, tag } from "./objects";
+import { SectionOutlineController } from "./outline";
+import { OutlinePrefs } from "./outline-sort";
+import { PdfPasteController } from "./pdf-paste";
 import { CanvasSearchBar } from "./search";
 import { TodoController } from "./todo";
 import { ZoomLodController } from "./zoomlod";
@@ -62,8 +65,10 @@ export default class CanvasEnhancePlugin extends Plugin {
   private minimap!: MinimapController;
   private anchors!: EdgeAnchorsController;
   private chronos!: ChronosController;
+  private outline!: SectionOutlineController;
+  private pdfPaste!: PdfPasteController;
   private keyScope: Scope | null = null;
-  private prefs: { minimapOpen?: boolean } = {};
+  private prefs: { minimapOpen?: boolean; outlines?: Record<string, OutlinePrefs> } = {};
 
   private toolbars = new Map<CanvasLike, CanvasToolbar>();
   private placing: { canvas: CanvasLike; kind: Kind; text?: string } | null = null;
@@ -72,7 +77,12 @@ export default class CanvasEnhancePlugin extends Plugin {
   private frameHooks = new WeakSet<CanvasLike>();
 
   async onload(): Promise<void> {
-    this.prefs = ((await this.loadData()) as { minimapOpen?: boolean } | null) ?? {};
+    this.prefs =
+      ((await this.loadData()) as {
+        minimapOpen?: boolean;
+        outlines?: Record<string, OutlinePrefs>;
+      } | null) ?? {};
+    if (!this.prefs.outlines) this.prefs.outlines = {};
     this.collapse = new CardCollapseController();
     this.zoomLod = new ZoomLodController();
     this.focus = new FocusController();
@@ -104,6 +114,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.minimap.sync(canvas);
       this.anchors.syncHandles(canvas);
       this.chronos.sync(canvas);
+      this.outline.sync(canvas);
     });
     this.mindmap = new MindmapController(this, this.chrome);
     this.formats = new FormatBar(this);
@@ -115,6 +126,19 @@ export default class CanvasEnhancePlugin extends Plugin {
         this.toolbars.get(canvas)?.setChronosActive(active);
       },
     });
+    this.outline = new SectionOutlineController({
+      getFilePath: (canvas) => this.canvasFilePath(canvas),
+      getPrefs: (filePath) => this.prefs.outlines?.[filePath] ?? {},
+      setPrefs: (filePath, next) => {
+        if (!this.prefs.outlines) this.prefs.outlines = {};
+        this.prefs.outlines[filePath] = next;
+        void this.saveData(this.prefs);
+      },
+      onOpenChange: (canvas, open) => {
+        this.toolbars.get(canvas)?.setOutlineActive(open);
+      },
+    });
+    this.pdfPaste = new PdfPasteController(this.chrome);
     this.menus = new ContextMenus(this, {
       create: (canvas, kind, at) => {
         createObject(this.chrome, { canvas, kind, at });
@@ -154,8 +178,35 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("layout-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.sync()));
     this.registerEvent(this.app.workspace.on("file-open", () => window.setTimeout(() => this.sync(), 60)));
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (this.prefs.outlines && this.prefs.outlines[oldPath]) {
+          this.prefs.outlines[file.path] = this.prefs.outlines[oldPath];
+          delete this.prefs.outlines[oldPath];
+          void this.saveData(this.prefs);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (this.prefs.outlines && this.prefs.outlines[file.path]) {
+          delete this.prefs.outlines[file.path];
+          void this.saveData(this.prefs);
+        }
+      })
+    );
 
     this.registerDomEvent(window, "keydown", (evt) => this.onKey(evt), true);
+    this.registerDomEvent(
+      window,
+      "paste",
+      (evt: ClipboardEvent) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return;
+        this.pdfPaste.onCanvasPaste(evt, canvas, isTyping(evt.target));
+      },
+      true
+    );
 
     // Official Obsidian Scope runs ahead of built-in hotkeys (e.g. ⌘G Graph View)
     // so ⌘G and ⌘F work seamlessly on Canvas while falling through elsewhere.
@@ -171,6 +222,12 @@ export default class CanvasEnhancePlugin extends Plugin {
       const canvas = activeCanvas(this.app);
       if (!canvas || isTyping(evt.target)) return;
       this.search.open(canvas);
+      return false;
+    });
+    scope.register(["Mod", "Shift"], "o", (evt) => {
+      const canvas = activeCanvas(this.app);
+      if (!canvas || isTyping(evt.target)) return;
+      this.outline.toggle(canvas);
       return false;
     });
     this.app.keymap.pushScope(scope);
@@ -290,6 +347,17 @@ export default class CanvasEnhancePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "toggle-section-outline",
+      name: "切换分区大纲 / Toggle section outline",
+      checkCallback: (checking) => {
+        const canvas = activeCanvas(this.app);
+        if (!canvas) return false;
+        if (!checking) this.outline.toggle(canvas);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "add-mindmap-child",
       name: "新建导图子节点 / Add mindmap child",
       checkCallback: (checking) => {
@@ -320,11 +388,13 @@ export default class CanvasEnhancePlugin extends Plugin {
     this.minimap.destroy();
     this.anchors.destroy();
     this.chronos.destroy();
+    this.outline.destroy();
     for (const canvas of this.toolbars.keys()) {
       this.collapse.detach(canvas);
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
       this.chronos.detach(canvas);
+      this.outline.detach(canvas);
       this.chrome.detach(canvas);
     }
     for (const bar of this.toolbars.values()) bar.detach();
@@ -342,6 +412,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.chrome.attach(canvas);
       this.anchors.attach(canvas);
       this.ensureToolbar(leaf, canvas);
+      this.outline.sync(canvas);
       this.hookFrames(canvas);
       this.patchFrame(canvas);
     }
@@ -356,6 +427,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       this.zoomLod.detach(canvas);
       this.anchors.detach(canvas);
       this.chronos.detach(canvas);
+      this.outline.detach(canvas);
       this.chrome.detach(canvas);
       this.toolbars.delete(canvas);
     }
@@ -371,12 +443,24 @@ export default class CanvasEnhancePlugin extends Plugin {
       (tool) => this.onTool(canvas, tool),
       () => this.search.toggle(canvas),
       () => this.minimap.toggle(this.toolbars.keys()),
-      () => this.chronos.toggle(canvas)
+      () => this.chronos.toggle(canvas),
+      () => this.outline.toggle(canvas)
     );
     bar.setMinimapActive(this.minimap.isOpen());
     bar.setChronosActive(this.chronos.isActive(canvas));
+    bar.setOutlineActive(this.outline.isOpen(canvas));
     host.appendChild(bar.el);
     this.toolbars.set(canvas, bar);
+  }
+
+  private canvasFilePath(canvas: CanvasLike): string | null {
+    for (const leaf of this.app.workspace.getLeavesOfType("canvas")) {
+      if (canvasOf(leaf) === canvas) {
+        const file = (leaf.view as { file?: { path?: string } | null }).file;
+        return file?.path ?? null;
+      }
+    }
+    return null;
   }
 
   /** Keep the overlay honest while nodes are being dragged. */
@@ -388,6 +472,7 @@ export default class CanvasEnhancePlugin extends Plugin {
       original();
       this.chrome.schedule(canvas);
       this.minimap.sync(canvas);
+      this.outline.sync(canvas);
     };
   }
 
@@ -404,6 +489,7 @@ export default class CanvasEnhancePlugin extends Plugin {
         }
         if (!doc || this.hookedDocs.has(doc)) return;
         this.hookedDocs.add(doc);
+        this.pdfPaste.hookEditorDoc(doc);
         doc.addEventListener(
           "keydown",
           (evt) => {
@@ -514,6 +600,12 @@ export default class CanvasEnhancePlugin extends Plugin {
         this.chronos.close(canvas);
         return;
       }
+      if (this.outline.isOpen(canvas) && !isTyping(evt.target)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.outline.close(canvas);
+        return;
+      }
       this.setPlacing(null);
       this.connect.exit();
       this.formats.hide();
@@ -522,6 +614,14 @@ export default class CanvasEnhancePlugin extends Plugin {
     }
 
     if (evt.metaKey || evt.ctrlKey) {
+      if (evt.shiftKey && !evt.altKey && evt.key.toLowerCase() === "o") {
+        if (isTyping(evt.target)) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        evt.stopImmediatePropagation();
+        this.outline.toggle(canvas);
+        return;
+      }
       if (!evt.shiftKey && !evt.altKey) {
         const key = evt.key.toLowerCase();
         if (key === "f") {

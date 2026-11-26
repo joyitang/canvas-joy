@@ -8,7 +8,7 @@
  */
 
 import { setIcon } from "obsidian";
-import { CHRONOS_TOOL, MINIMAP_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
+import { CHRONOS_TOOL, MINIMAP_TOOL, OUTLINE_TOOL, SEARCH_TOOL, TOOLS, ToolId, tooltip } from "./copy";
 import { renderToolIcon } from "./icons";
 
 export class CanvasToolbar {
@@ -17,12 +17,14 @@ export class CanvasToolbar {
   private searchBtn: HTMLButtonElement;
   private minimapBtn: HTMLButtonElement;
   private chronosBtn: HTMLButtonElement;
+  private outlineBtn: HTMLButtonElement;
 
   constructor(
     private onPick: (id: ToolId) => void,
     private onSearch: () => void,
     private onMinimap: () => void,
-    private onChronos: () => void
+    private onChronos: () => void,
+    private onOutline: () => void
   ) {
     this.el = document.createElement("div");
     this.el.className = "jce-toolbar";
@@ -109,13 +111,37 @@ export class CanvasToolbar {
     });
     this.chronosBtn = chronosBtn;
 
+    const outlineBtn = this.el.createEl("button", {
+      type: "button",
+      cls: "jce-tool jce-tool-outline",
+      attr: {
+        "data-tool": "outline",
+        "aria-label": tooltip(OUTLINE_TOOL),
+      },
+    });
+    setIcon(outlineBtn, "list");
+    outlineBtn.addEventListener("mousedown", (evt) => evt.preventDefault());
+    outlineBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.onOutline();
+    });
+    this.outlineBtn = outlineBtn;
+
     this.setActive("select");
   }
 
   setActive(id: ToolId | null): void {
     this.current = id;
     this.el.querySelectorAll<HTMLElement>(".jce-tool").forEach((btn) => {
-      if (btn === this.searchBtn || btn === this.minimapBtn || btn === this.chronosBtn) return;
+      if (
+        btn === this.searchBtn ||
+        btn === this.minimapBtn ||
+        btn === this.chronosBtn ||
+        btn === this.outlineBtn
+      ) {
+        return;
+      }
       btn.classList.toggle("is-active", btn.dataset.tool === id);
     });
   }
@@ -130,6 +156,10 @@ export class CanvasToolbar {
 
   setChronosActive(active: boolean): void {
     this.chronosBtn.classList.toggle("is-active", active);
+  }
+
+  setOutlineActive(active: boolean): void {
+    this.outlineBtn.classList.toggle("is-active", active);
   }
 
   getActive(): ToolId | null {
