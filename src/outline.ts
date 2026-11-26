@@ -115,15 +115,33 @@ export class SectionOutlineController {
     return (canvas.wrapperEl.closest(".view-content") as HTMLElement | null) ?? canvas.wrapperEl;
   }
 
-  private collectSections(canvas: CanvasLike): SectionEntry[] {
+  private collectSections(canvas: CanvasLike): {
+    entries: SectionEntry[];
+    parentOf: Map<string, string>;
+  } {
+    const groups: NodeLike[] = [];
+    for (const node of canvas.nodes.values()) {
+      if (isGroupNode(node)) groups.push(node);
+    }
+
+    // Track direct parent group for nested sections so the outline only lists top-level sections.
+    const parentOf = new Map<string, string>();
+    for (const g of groups) {
+      for (const inside of nodesInsideGroup(canvas, g)) {
+        if (isGroupNode(inside) && inside.id !== g.id) {
+          parentOf.set(inside.id, g.id);
+        }
+      }
+    }
+
     const entries: SectionEntry[] = [];
     let idx = 0;
-    for (const node of canvas.nodes.values()) {
-      if (!isGroupNode(node)) continue;
+    for (const node of groups) {
+      if (parentOf.has(node.id)) continue;
       const rawLabel = String(node.getData().label ?? node.label ?? "").trim();
       const label = rawLabel || "Section";
       const folded = isCardFolded(node);
-      const inside = nodesInsideGroup(canvas, node);
+      const inside = nodesInsideGroup(canvas, node).filter((n) => !isGroupNode(n));
       entries.push({
         id: node.id,
         label,
@@ -132,7 +150,17 @@ export class SectionOutlineController {
         creationIndex: idx++,
       });
     }
-    return entries;
+    return { entries, parentOf };
+  }
+
+  private rootGroupId(id: string, parentOf: Map<string, string>): string {
+    let cur = id;
+    const seen = new Set<string>();
+    while (parentOf.has(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      cur = parentOf.get(cur)!;
+    }
+    return cur;
   }
 
   private ensureShell(canvas: CanvasLike, host: HTMLElement, st: OutlineUiState): HTMLElement {
@@ -232,11 +260,11 @@ export class SectionOutlineController {
       drawer.classList.add("is-open");
     }
 
-    const rawEntries = this.collectSections(canvas);
+    const { entries: rawEntries, parentOf } = this.collectSections(canvas);
     const entries = sortSections(rawEntries, "order", prefs.customOrder);
 
     const selGroup = selectedNodes(canvas).find((n) => isGroupNode(n));
-    if (selGroup) st.activeSectionId = selGroup.id;
+    if (selGroup) st.activeSectionId = this.rootGroupId(selGroup.id, parentOf);
     else if (st.activeSectionId && !canvas.nodes.has(st.activeSectionId)) {
       st.activeSectionId = null;
     }
