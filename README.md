@@ -16,7 +16,9 @@ Heptabase-style visual thinking for native Obsidian Canvas, stored cleanly in st
 
 ## Demo
 
-<!-- Add launch video / screenshot here -->
+![Canvas Joy Demo](assets/demo.gif)
+
+[Watch HD video (MP4)](assets/demo.mp4)
 
 ## Installation
 

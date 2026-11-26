@@ -16,7 +16,9 @@
 
 ## 演示
 
-<!-- 录制完成后可在此处添加演示视频或截图 -->
+![Canvas Joy 演示](assets/demo.gif)
+
+[查看高清视频（MP4）](assets/demo.mp4)
 
 ## 安装
 
