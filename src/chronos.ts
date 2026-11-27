@@ -453,7 +453,7 @@ export class ChronosController {
         if (m.index > cursor) {
           frag.appendChild(document.createTextNode(value.slice(cursor, m.index)));
         }
-        const span = createEl("span");
+        const span = createSpan();
         span.className = "jce-chronos-date";
         span.dataset.nodeId = node.id;
         span.dataset.start = String(m.start);

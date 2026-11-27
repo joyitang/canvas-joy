@@ -95,8 +95,8 @@
   box-shadow: 0 3px 15px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-.jce-format-bar[hidden] {
-  display: none !important;
+body .jce-format-bar[hidden] {
+  display: none;
 }
 
 .jce-format-row {
@@ -217,8 +217,8 @@
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-.jce-format-pop[hidden] {
-  display: none !important;
+body .jce-format-pop[hidden] {
+  display: none;
 }
 
 .jce-format-input {
@@ -268,12 +268,12 @@
   transform-origin: center;
 }
 
-/* ------------------------------------------------------------ mindmap node
+body /* ------------------------------------------------------------ mindmap node
  * PRD MM-01/MM-02: a fully transparent fixed rectangle. No inner white block,
- * no double frame; one frame only while selected or editing.
+* no double frame; one frame only while selected or editing.
  */
 
-.canvas-wrapper .canvas-node.jce-mindmap {
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap {
   --canvas-color: transparent;
   --background-primary: transparent;
   --background-primary-alt: transparent;
@@ -281,57 +281,61 @@
   --background-modifier-form-field: transparent;
   --code-background: transparent;
   --embed-background: transparent;
-  background: transparent !important;
-  box-shadow: none !important;
-  overflow: visible !important;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap > .canvas-node-container {
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  border: 1.5px solid transparent !important;
-  border-radius: 10px !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap > .canvas-node-container {
+  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 !important;
+  padding: 0;
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap:is(.is-focused, .is-selected, .is-editing, .mod-selected, .mod-focused)
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap:is(.is-focused,
+body .is-selected,
+body .is-editing,
+body .mod-selected,
+body .mod-focused)
   > .canvas-node-container {
-  border-color: var(--jce-accent) !important;
+  border-color: var(--jce-accent);
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-content,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed-content,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-view,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-sizer,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-section {
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-content,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed-content,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-view,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-sizer,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-section {
+  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  border: none;
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-content {
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-content {
   width: 100%;
   height: 100%;
-  padding: 6px 10px !important;
+  padding: 6px 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed-content,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-view,
-.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-sizer {
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-embed-content,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-view,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .markdown-preview-sizer {
   width: 100%;
-  min-height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -345,78 +349,81 @@
   text-align: center;
 }
 
-.canvas-wrapper .canvas-node.jce-mindmap iframe {
-  width: 100% !important;
-  height: 100% !important;
-  border: 0 !important;
-  background: transparent !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
 }
 
 /* Native chrome that MM-08 requires us to replace. */
-.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-resizer,
-.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-connection-point,
-.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-connection-point * {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-resizer,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-connection-point,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mindmap .canvas-node-connection-point * {
+  display: none;
 }
 
-.canvas-wrapper.jce-mm-selected .canvas-menu-container {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper.jce-mm-selected .canvas-menu-container {
+  display: none;
 }
 
-.canvas-wrapper .canvas-node.jce-folded {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-folded {
+  display: none;
 }
 
-.canvas-wrapper .canvas-node.jce-mm-hidden {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-mm-hidden {
+  display: none;
 }
 
-/* ------------------------------------------------------------- note card
- * PRD NOTE-01..04: soft tinted card, kept distinct from plain Text.
+body /* ------------------------------------------------------------- note card
+ * PRD NOTE-01..04: soft tinted card,
+kept distinct from plain Text.
  */
 
-.canvas-wrapper .canvas-node.jce-note > .canvas-node-container {
-  background: var(--jce-note-bg, #fbf7ee) !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note > .canvas-node-container {
+  background: var(--jce-note-bg, #fbf7ee);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
   padding: 14px 16px;
 }
 
-.canvas-wrapper .canvas-node.jce-note.is-themed > .canvas-node-container {
-  background: var(--jce-note-bg, color-mix(in srgb, var(--canvas-color) 14%, #ffffff)) !important;
-  border-color: color-mix(in oklch, var(--canvas-color) 70%, transparent) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note.is-themed > .canvas-node-container {
+  background: var(--jce-note-bg, color-mix(in srgb, var(--canvas-color) 14%, #ffffff));
+  border-color: color-mix(in oklch, var(--canvas-color) 70%, transparent);
 }
 
-.canvas-wrapper .canvas-node.jce-note.is-themed:is(.is-selected, .is-focused) > .canvas-node-container {
-  border-color: var(--canvas-color) !important;
-  box-shadow: inset 0 0 0 1px var(--canvas-color), 0 0 0 2px var(--canvas-color) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note.is-themed:is(.is-selected,
+body .is-focused) > .canvas-node-container {
+  border-color: var(--canvas-color);
+  box-shadow: inset 0 0 0 1px var(--canvas-color), 0 0 0 2px var(--canvas-color);
 }
 
-.canvas-wrapper .canvas-node.jce-note .canvas-node-content {
-  background: transparent !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note .canvas-node-content {
+  background: transparent;
 }
 
-.canvas-wrapper .canvas-node.jce-note .markdown-embed,
-.canvas-wrapper .canvas-node.jce-note .markdown-preview-view {
-  background: transparent !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note .markdown-embed,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-note .markdown-preview-view {
+  background: transparent;
 }
 
-/* ------------------------------------------------------------------- text
- * PRD TEXT-03: light frame, white fill — not a grey/green block.
+body /* ------------------------------------------------------------------- text
+ * PRD TEXT-03: light frame,
+white fill — not a grey/green block.
  */
 
-.canvas-wrapper .canvas-node.jce-text > .canvas-node-container {
-  background: var(--background-primary) !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-text > .canvas-node-container {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
   padding: 8px 10px;
 }
 
-.canvas-wrapper .canvas-node.jce-text .canvas-node-content,
-.canvas-wrapper .canvas-node.jce-text .markdown-preview-view {
-  background: transparent !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-text .canvas-node-content,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-text .markdown-preview-view {
+  background: transparent;
 }
 
 /* ---------------------------------------------------------------- section
@@ -451,8 +458,8 @@
   stroke: none;
 }
 
-.canvas-wrapper .jce-hide-native {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .jce-hide-native {
+  display: none;
 }
 
 /* ------------------------------------------------------------ interaction */
@@ -468,7 +475,6 @@
 .canvas-wrapper .canvas-node .task-list-item[data-task="X"] {
   color: var(--text-faint);
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
 }
 
 .canvas-wrapper.jce-placing {
@@ -483,9 +489,9 @@
   cursor: crosshair;
 }
 
-.canvas-wrapper .canvas-node.jce-connect-from > .canvas-node-container {
-  border-color: var(--jce-accent) !important;
-  box-shadow: 0 0 0 2px var(--jce-accent-soft) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-connect-from > .canvas-node-container {
+  border-color: var(--jce-accent);
+  box-shadow: 0 0 0 2px var(--jce-accent-soft);
 }
 
 /* Fold indicator on folded mindmap nodes. */
@@ -529,8 +535,8 @@
   color: var(--text-normal);
 }
 
-.jce-search-bar[hidden] {
-  display: none !important;
+body .jce-search-bar[hidden] {
+  display: none;
 }
 
 .jce-search-row {
@@ -553,13 +559,13 @@
   height: 16px;
 }
 
-.jce-search-input {
+body .jce-search-input {
   flex: 1;
   min-width: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
   font-size: 13.5px;
   color: var(--text-normal);
   padding: 4px 2px;
@@ -612,8 +618,8 @@
   gap: 2px;
 }
 
-.jce-search-list[hidden] {
-  display: none !important;
+body .jce-search-list[hidden] {
+  display: none;
 }
 
 .jce-search-item {
@@ -675,30 +681,30 @@
   text-overflow: ellipsis;
 }
 
-.canvas-wrapper .canvas-node.jce-search-hit > .canvas-node-container {
-  box-shadow: 0 0 0 2px var(--interactive-accent) !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-search-hit > .canvas-node-container {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
 }
 
-.canvas-wrapper .canvas-node.jce-search-current > .canvas-node-container {
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-search-current > .canvas-node-container {
   box-shadow:
     0 0 0 3px var(--interactive-accent),
-    0 8px 24px rgba(0, 0, 0, 0.18) !important;
+    0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 /* ------------------------------------------------------------- focus mode */
 
-.canvas-wrapper.jce-focus-mode .canvas-node:not(.jce-focused-item) {
-  opacity: 0.15 !important;
+div.canvas-wrapper.canvas-wrapper.jce-focus-mode .canvas-node:not(.jce-focused-item) {
+  opacity: 0.15;
   transition: opacity 140ms ease;
 }
 
-.canvas-wrapper.jce-focus-mode .canvas-node.jce-focused-item {
-  opacity: 1 !important;
+div.canvas-wrapper.canvas-wrapper.jce-focus-mode .canvas-node.jce-focused-item {
+  opacity: 1;
   transition: opacity 140ms ease;
 }
 
-.canvas-wrapper .jce-focus-dim {
-  opacity: 0.15 !important;
+div.canvas-wrapper.canvas-wrapper .jce-focus-dim {
+  opacity: 0.15;
   transition: opacity 140ms ease;
 }
 
@@ -749,10 +755,10 @@
 
 /* ------------------------------------------------- card & section collapse */
 
-.canvas-wrapper .canvas-node .jce-sec-hidden,
-.canvas-wrapper .canvas-node.jce-sec-hidden,
-.canvas-wrapper .jce-sec-hidden {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node .jce-sec-hidden,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-sec-hidden,
+div.canvas-wrapper.canvas-wrapper .jce-sec-hidden {
+  display: none;
 }
 
 .canvas-wrapper .canvas-node > .canvas-node-container > .jce-fold-btn {
@@ -797,20 +803,20 @@
   color: var(--text-normal);
 }
 
-.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container {
-  padding: 0 38px 0 14px !important;
-  overflow: hidden !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container {
+  padding: 0 38px 0 14px;
+  overflow: hidden;
   pointer-events: auto;
 }
 
-.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-content,
-.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-placeholder,
-.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-lod-overlay {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-content,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .canvas-node-placeholder,
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-lod-overlay {
+  display: none;
 }
 
-.canvas-wrapper .canvas-node.jce-section-folded > .canvas-group-label {
-  display: none !important;
+div.canvas-wrapper.canvas-wrapper .canvas-node.jce-section-folded > .canvas-group-label {
+  display: none;
 }
 
 .canvas-wrapper .canvas-node.jce-card-folded > .canvas-node-container > .jce-fold-btn {
@@ -829,8 +835,8 @@
   user-select: none;
 }
 
-.jce-collapsed-bar[hidden] {
-  display: none !important;
+body .jce-collapsed-bar[hidden] {
+  display: none;
 }
 
 .jce-collapsed-title {
@@ -855,8 +861,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.jce-collapsed-meta[hidden] {
-  display: none !important;
+body .jce-collapsed-meta[hidden] {
+  display: none;
 }
 
 /* ----------------------------------------------------------- zoom-out LOD */
@@ -882,8 +888,8 @@
   gap: 4px;
 }
 
-.jce-lod-overlay[hidden] {
-  display: none !important;
+body .jce-lod-overlay[hidden] {
+  display: none;
 }
 
 .jce-lod-title {
@@ -917,8 +923,8 @@
   overflow-wrap: anywhere;
 }
 
-.jce-lod-summary[hidden] {
-  display: none !important;
+body .jce-lod-summary[hidden] {
+  display: none;
 }
 
 .jce-lod-badge {
@@ -934,30 +940,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-.jce-lod-badge[hidden] {
-  display: none !important;
+body .jce-lod-badge[hidden] {
+  display: none;
 }
 
 /* Hide blank icon placeholders only when zoomed far out (native mod-zoomed-out or <= 32%). */
-.canvas-wrapper.jce-zoom-far
+div.canvas-wrapper.canvas-wrapper.jce-zoom-far
   .canvas-node:not(.jce-mindmap):not(.jce-section):not(.canvas-node-group):not(.jce-card-folded):not(.is-editing)
   > .canvas-node-container
   > .canvas-node-content,
-.canvas-wrapper.jce-zoom-far
+div.canvas-wrapper.canvas-wrapper.jce-zoom-far
   .canvas-node:not(.jce-mindmap):not(.jce-section):not(.canvas-node-group):not(.jce-card-folded):not(.is-editing)
   > .canvas-node-container
   > .canvas-node-placeholder {
-  opacity: 0 !important;
-  visibility: hidden !important;
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* Keep section titles prominent and visible below Obsidian's zoom breakpoint. */
-.canvas-wrapper.jce-zoom-far .canvas-node-group:not(.jce-section-folded) > .canvas-group-label {
-  display: block !important;
-  font-size: clamp(16px, calc(13px / max(var(--jce-scale, 1), 0.15)), 54px) !important;
-  font-weight: 650 !important;
-  line-height: 1.2 !important;
-  padding: 4px 10px !important;
+div.canvas-wrapper.canvas-wrapper.jce-zoom-far .canvas-node-group:not(.jce-section-folded) > .canvas-group-label {
+  display: block;
+  font-size: clamp(16px, calc(13px / max(var(--jce-scale, 1), 0.15)), 54px);
+  font-weight: 650;
+  line-height: 1.2;
+  padding: 4px 10px;
 }
 
 .canvas-wrapper.jce-zoom-far .canvas-node.jce-card-folded .jce-collapsed-title {
@@ -982,8 +988,8 @@
   box-shadow: var(--shadow-s, 0 4px 16px rgba(0, 0, 0, 0.12));
 }
 
-.jce-align-bar[hidden] {
-  display: none !important;
+body .jce-align-bar[hidden] {
+  display: none;
 }
 
 .jce-align-sep {
@@ -1039,8 +1045,8 @@
   backdrop-filter: blur(8px);
 }
 
-.jce-minimap[hidden] {
-  display: none !important;
+body .jce-minimap[hidden] {
+  display: none;
 }
 
 .jce-minimap-canvas {
@@ -1110,8 +1116,8 @@
   transition: background-color 100ms ease, width 100ms ease, height 100ms ease, margin 100ms ease;
 }
 
-.jce-edge-handle[hidden] {
-  display: none !important;
+body .jce-edge-handle[hidden] {
+  display: none;
 }
 
 .jce-edge-handle:hover {
@@ -1122,12 +1128,12 @@
   background: var(--color-accent, #7c3aed);
 }
 
-.canvas-wrapper.jce-anchor-dragging {
-  cursor: grabbing !important;
+div.canvas-wrapper.canvas-wrapper.jce-anchor-dragging {
+  cursor: grabbing;
 }
 
-.canvas-wrapper.jce-anchor-dragging .jce-edge-handle {
-  cursor: grabbing !important;
+div.canvas-wrapper.canvas-wrapper.jce-anchor-dragging .jce-edge-handle {
+  cursor: grabbing;
 }
 
 .jce-anchor-dot {
@@ -1152,16 +1158,16 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent, #7c3aed) 28%, transparent);
 }
 
-.jce-anchor-dot[hidden] {
-  display: none !important;
+body .jce-anchor-dot[hidden] {
+  display: none;
 }
 
 
 /* ------------------------------------------------------ chronos timeline */
 
 /* Dim out-of-range cards & edges (matching Focus Mode's 15% dim feel) */
-.canvas-wrapper.jce-chronos-mode .canvas-node.jce-chronos-dim {
-  opacity: 0.15 !important;
+div.canvas-wrapper.canvas-wrapper.jce-chronos-mode .canvas-node.jce-chronos-dim {
+  opacity: 0.15;
   transition: opacity 160ms ease;
 }
 
@@ -1169,20 +1175,20 @@
   transition: opacity 160ms ease;
 }
 
-.canvas-wrapper.jce-chronos-mode .jce-chronos-edge-dim {
-  opacity: 0.12 !important;
+div.canvas-wrapper.canvas-wrapper.jce-chronos-mode .jce-chronos-edge-dim {
+  opacity: 0.12;
   transition: opacity 160ms ease;
 }
 
 /* "Only" mode: hide out-of-range cards & edges cleanly */
-.canvas-wrapper.jce-chronos-mode.jce-chronos-only .canvas-node.jce-chronos-dim {
-  opacity: 0 !important;
-  pointer-events: none !important;
+div.canvas-wrapper.canvas-wrapper.jce-chronos-mode.jce-chronos-only .canvas-node.jce-chronos-dim {
+  opacity: 0;
+  pointer-events: none;
 }
 
-.canvas-wrapper.jce-chronos-mode.jce-chronos-only .jce-chronos-edge-dim {
-  opacity: 0 !important;
-  pointer-events: none !important;
+div.canvas-wrapper.canvas-wrapper.jce-chronos-mode.jce-chronos-only .jce-chronos-edge-dim {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Intra-card block dimming on multi-period cards (matches 15% card dim level) */
@@ -1412,8 +1418,8 @@
   background: color-mix(in srgb, var(--text-normal) 6%, transparent);
 }
 
-.jce-chronos-action[hidden] {
-  display: none !important;
+body .jce-chronos-action[hidden] {
+  display: none;
 }
 
 .jce-chronos-action-icon {
@@ -1485,8 +1491,8 @@
   gap: 8px;
 }
 
-.jce-pierce-blocker {
-  pointer-events: none !important;
+body .jce-pierce-blocker {
+  pointer-events: none;
 }
 
 /* ------------------------------------------------ section outline (drawer) */
@@ -1637,7 +1643,7 @@
   gap: 2px;
 }
 
-.jce-outline-icon-btn {
+body .jce-outline-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1647,14 +1653,14 @@
   padding: 0;
   border: none;
   border-radius: 6px;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
-.jce-outline-icon-btn:hover {
-  background: var(--background-modifier-hover) !important;
+body .jce-outline-icon-btn:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
@@ -1682,7 +1688,7 @@
   gap: 2px;
 }
 
-.jce-outline-seg-btn {
+body .jce-outline-seg-btn {
   height: 20px;
   min-height: 0;
   line-height: 1;
@@ -1691,36 +1697,36 @@
   padding: 0 7px;
   font-size: 11px;
   font-weight: 500;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
-.jce-outline-seg-btn.is-active {
-  background: var(--background-primary) !important;
+body .jce-outline-seg-btn.is-active {
+  background: var(--background-primary);
   color: var(--jce-accent, #6b8fbf);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-.jce-outline-reset-btn {
+body .jce-outline-reset-btn {
   height: 20px;
   min-height: 0;
   line-height: 1;
   border: none;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-muted);
   font-size: 10.5px;
   padding: 0 5px;
   border-radius: 4px;
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
-.jce-outline-reset-btn:hover {
+body .jce-outline-reset-btn:hover {
   color: var(--jce-accent, #6b8fbf);
-  background: var(--jce-accent-soft, rgba(107, 143, 191, 0.16)) !important;
+  background: var(--jce-accent-soft, rgba(107, 143, 191, 0.16));
 }
 
 .jce-outline-list {
@@ -1846,8 +1852,8 @@
   color: var(--jce-accent, #6b8fbf);
 }
 
-/* Section highlight pulse when jumped from Outline */
+body /* Section highlight pulse when jumped from Outline */
 .canvas-node.jce-outline-pulse > .canvas-node-container {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--jce-accent, #6b8fbf) 45%, transparent) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--jce-accent, #6b8fbf) 45%, transparent);
   transition: box-shadow 220ms ease;
 }

@@ -953,7 +953,7 @@ var EdgeAnchorsController = class {
     return pair;
   }
   makeHandle(canvas, end) {
-    const el = createEl("div");
+    const el = createDiv();
     el.className = "jce-edge-handle";
     el.dataset.end = end;
     el.hidden = true;
@@ -1066,7 +1066,7 @@ var EdgeAnchorsController = class {
   showPreviewDot(canvas, pt, centered) {
     let dot = this.previewDots.get(canvas);
     if (!dot || !canvas.canvasEl.contains(dot)) {
-      dot = createEl("div");
+      dot = createDiv();
       dot.className = "jce-anchor-dot";
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);
@@ -2316,7 +2316,7 @@ var ChronosController = class {
         if (m.index > cursor) {
           frag.appendChild(document.createTextNode(value.slice(cursor, m.index)));
         }
-        const span = createEl("span");
+        const span = createSpan();
         span.className = "jce-chronos-date";
         span.dataset.nodeId = node.id;
         span.dataset.start = String(m.start);
@@ -3407,7 +3407,7 @@ var CanvasPngExporter = class {
   // ------------------------------------------------------------------ DOM clone
   async buildClonedWorld(canvas, targets, worldX, worldY, worldW, worldH, selectionOnly) {
     const targetIds = new Set(targets.map((n) => n.id));
-    const stage = createEl("div");
+    const stage = createDiv();
     stage.className = "canvas-wrapper jce-export-stage";
     stage.style.cssText = [
       "position: relative",
@@ -3417,7 +3417,7 @@ var CanvasPngExporter = class {
       "background: transparent",
       "pointer-events: none"
     ].join(";");
-    const world = createEl("div");
+    const world = createDiv();
     world.className = "canvas";
     world.style.cssText = [
       "position: absolute",
@@ -3713,13 +3713,13 @@ var FormatBar = class {
     this.hooked = /* @__PURE__ */ new WeakSet();
     this.followFrame = 0;
     this.syncTimer = 0;
-    this.el = createEl("div");
+    this.el = createDiv();
     this.el.className = "jce-format-bar";
     this.el.hidden = true;
-    this.colorBox = createEl("div");
+    this.colorBox = createDiv();
     this.colorBox.className = "jce-format-pop jce-format-swatches";
     this.colorBox.hidden = true;
-    this.linkBox = createEl("div");
+    this.linkBox = createDiv();
     this.linkBox.className = "jce-format-pop jce-format-link";
     this.linkBox.hidden = true;
     this.linkInput = createEl("input");
@@ -3737,12 +3737,12 @@ var FormatBar = class {
   }
   // -------------------------------------------------------------------- ui
   build() {
-    const row = createEl("div");
+    const row = createDiv();
     row.className = "jce-format-row";
     let group = -1;
     for (const btn of BUTTONS) {
       if (group !== -1 && btn.group !== group) {
-        const sep = createEl("span");
+        const sep = createSpan();
         sep.className = "jce-format-sep";
         row.appendChild(sep);
       }
@@ -3757,7 +3757,7 @@ var FormatBar = class {
         el.classList.add("jce-fmt-icon");
         (0, import_obsidian5.setIcon)(el, "paint-bucket");
       } else {
-        const glyph = createEl("span");
+        const glyph = createSpan();
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
         glyph.textContent = btn.glyph;
         el.appendChild(glyph);
@@ -4583,7 +4583,7 @@ var CanvasToolbar = class {
     this.onChronos = onChronos;
     this.onOutline = onOutline;
     this.current = "select";
-    this.el = createEl("div");
+    this.el = createDiv();
     this.el.className = "jce-toolbar";
     this.el.setAttribute("role", "toolbar");
     this.el.setAttribute("aria-label", "Canvas Joy");

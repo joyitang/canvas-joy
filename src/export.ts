@@ -277,7 +277,7 @@ export class CanvasPngExporter {
     selectionOnly: boolean
   ): Promise<HTMLElement> {
     const targetIds = new Set(targets.map((n) => n.id));
-    const stage = createEl("div");
+    const stage = createDiv();
     stage.className = "canvas-wrapper jce-export-stage";
     stage.style.cssText = [
       "position: relative",
@@ -288,7 +288,7 @@ export class CanvasPngExporter {
       "pointer-events: none",
     ].join(";");
 
-    const world = createEl("div");
+    const world = createDiv();
     world.className = "canvas";
     world.style.cssText = [
       "position: absolute",

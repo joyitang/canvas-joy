@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.3
+
+- [x] 移除 `styles.css` 全部 99 处 `!important`，改为更高优先级选择器并保持视觉样式一致
+- [x] 修复 `styles.css` 中 `text-decoration-thickness` 兼容性告警
+- [x] 将剩余 12 处 `createEl("div")` / `createEl("span")` 替换为 Obsidian 专用 `createDiv()` / `createSpan()`
+
 ## 1.7.2
 
 - [x] 按 Obsidian 官方插件规范清理代码告警：替换 `createEl` / `createFragment`、`window.requestAnimationFrame`、`.instanceOf(...)`、`requestUrl` 与显式 `@codemirror/view` 依赖，移除多余类型断言与 `this` 别名

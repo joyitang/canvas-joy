@@ -717,7 +717,7 @@ export class EdgeAnchorsController {
   }
 
   private makeHandle(canvas: CanvasLike, end: AnchorEnd): HTMLDivElement {
-    const el = createEl("div");
+    const el = createDiv();
     el.className = "jce-edge-handle";
     el.dataset.end = end;
     el.hidden = true;
@@ -866,7 +866,7 @@ export class EdgeAnchorsController {
   private showPreviewDot(canvas: CanvasLike, pt: Point, centered: boolean): void {
     let dot = this.previewDots.get(canvas);
     if (!dot || !canvas.canvasEl.contains(dot)) {
-      dot = createEl("div");
+      dot = createDiv();
       dot.className = "jce-anchor-dot";
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);

@@ -72,13 +72,13 @@ export class FormatBar {
   private syncTimer = 0;
 
   constructor(private plugin: Plugin) {
-    this.el = createEl("div");
+    this.el = createDiv();
     this.el.className = "jce-format-bar";
     this.el.hidden = true;
-    this.colorBox = createEl("div");
+    this.colorBox = createDiv();
     this.colorBox.className = "jce-format-pop jce-format-swatches";
     this.colorBox.hidden = true;
-    this.linkBox = createEl("div");
+    this.linkBox = createDiv();
     this.linkBox.className = "jce-format-pop jce-format-link";
     this.linkBox.hidden = true;
     this.linkInput = createEl("input");
@@ -102,12 +102,12 @@ export class FormatBar {
   // -------------------------------------------------------------------- ui
 
   private build(): void {
-    const row = createEl("div");
+    const row = createDiv();
     row.className = "jce-format-row";
     let group = -1;
     for (const btn of BUTTONS) {
       if (group !== -1 && btn.group !== group) {
-        const sep = createEl("span");
+        const sep = createSpan();
         sep.className = "jce-format-sep";
         row.appendChild(sep);
       }
@@ -125,7 +125,7 @@ export class FormatBar {
         el.classList.add("jce-fmt-icon");
         setIcon(el, "paint-bucket");
       } else {
-        const glyph = createEl("span");
+        const glyph = createSpan();
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
         glyph.textContent = btn.glyph;
         el.appendChild(glyph);
