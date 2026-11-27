@@ -112,7 +112,7 @@ export class SectionOutlineController {
   }
 
   private hostOf(canvas: CanvasLike): HTMLElement | null {
-    return (canvas.wrapperEl.closest(".view-content") as HTMLElement | null) ?? canvas.wrapperEl;
+    return canvas.wrapperEl.closest(".view-content") ?? canvas.wrapperEl;
   }
 
   private collectSections(canvas: CanvasLike): {
@@ -469,7 +469,7 @@ export class SectionOutlineController {
     const prev = this.pulseTimers.get(node);
     if (prev) window.clearTimeout(prev);
     el.classList.remove("jce-outline-pulse");
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       el.classList.add("jce-outline-pulse");
       const timer = window.setTimeout(() => {
         el.classList.remove("jce-outline-pulse");

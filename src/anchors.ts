@@ -432,18 +432,21 @@ export class EdgeAnchorsController {
     this.origGetBBox = proto.getBBox;
     this.origUpdate = proto.update;
 
-    const controller = this;
+    const onUpdatePath = (e: EdgeLike): void => this.patchedUpdatePath(e);
+    const onGetBBox = (e: EdgeLike): BBox => this.patchedGetBBox(e);
+    const onUpdate = (e: EdgeLike, from: EdgeLike["from"], to: EdgeLike["to"]): void =>
+      this.patchedUpdate(e, from, to);
 
     proto.updatePath = function (this: EdgeLike) {
-      controller.patchedUpdatePath(this);
+      onUpdatePath(this);
     };
 
     proto.getBBox = function (this: EdgeLike): BBox {
-      return controller.patchedGetBBox(this);
+      return onGetBBox(this);
     };
 
     proto.update = function (this: EdgeLike, from: EdgeLike["from"], to: EdgeLike["to"]) {
-      controller.patchedUpdate(this, from, to);
+      onUpdate(this, from, to);
     };
   }
 
@@ -469,7 +472,7 @@ export class EdgeAnchorsController {
   private patchedUpdatePath(edge: EdgeLike): void {
     const path = edge.path;
     if (!path?.interaction || !path?.display) {
-      this.origUpdatePath?.call(edge);
+      if (path) this.origUpdatePath?.call(edge);
       return;
     }
 
@@ -714,7 +717,7 @@ export class EdgeAnchorsController {
   }
 
   private makeHandle(canvas: CanvasLike, end: AnchorEnd): HTMLDivElement {
-    const el = document.createElement("div");
+    const el = createEl("div");
     el.className = "jce-edge-handle";
     el.dataset.end = end;
     el.hidden = true;
@@ -863,7 +866,7 @@ export class EdgeAnchorsController {
   private showPreviewDot(canvas: CanvasLike, pt: Point, centered: boolean): void {
     let dot = this.previewDots.get(canvas);
     if (!dot || !canvas.canvasEl.contains(dot)) {
-      dot = document.createElement("div");
+      dot = createEl("div");
       dot.className = "jce-anchor-dot";
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);

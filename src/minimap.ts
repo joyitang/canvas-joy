@@ -90,7 +90,7 @@ export class MinimapController {
     if (existing && existing.rootEl.isConnected) return existing;
     existing?.rootEl.remove();
 
-    const host = canvas.wrapperEl.closest(".view-content") as HTMLElement | null;
+    const host = canvas.wrapperEl.closest(".view-content");
     if (!host) return null;
 
     const rootEl = host.createDiv({
@@ -176,7 +176,7 @@ export class MinimapController {
 
   private scheduleDraw(canvas: CanvasLike, state: MinimapState): void {
     if (state.raf) return;
-    state.raf = requestAnimationFrame(() => {
+    state.raf = window.requestAnimationFrame(() => {
       state.raf = 0;
       if (!this.open || !state.rootEl.isConnected) return;
       this.draw(canvas, state);

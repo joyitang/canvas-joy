@@ -130,7 +130,7 @@ export class Chrome {
   schedule(canvas: CanvasLike): void {
     if (this.scheduled.has(canvas)) return;
     this.scheduled.add(canvas);
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scheduled.delete(canvas);
       this.sync(canvas);
     });
@@ -258,7 +258,7 @@ export class Chrome {
     if (!doc?.documentElement) return;
     let style = doc.getElementById(IFRAME_STYLE_ID) as HTMLStyleElement | null;
     if (!style) {
-      style = doc.createElement("style");
+      style = createEl("style");
       style.id = IFRAME_STYLE_ID;
       (doc.head ?? doc.documentElement).appendChild(style);
     }

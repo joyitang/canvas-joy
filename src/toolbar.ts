@@ -34,7 +34,7 @@ export class CanvasToolbar {
     private onChronos: () => void,
     private onOutline: () => void
   ) {
-    this.el = document.createElement("div");
+    this.el = createEl("div");
     this.el.className = "jce-toolbar";
     this.el.setAttribute("role", "toolbar");
     this.el.setAttribute("aria-label", "Canvas Joy");

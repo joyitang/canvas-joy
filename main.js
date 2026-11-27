@@ -30,7 +30,7 @@ var import_obsidian12 = require("obsidian");
 var edgeCtors = /* @__PURE__ */ new WeakMap();
 function uid() {
   const bytes = new Uint8Array(8);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 function allNodes(canvas) {
@@ -81,7 +81,7 @@ function nodeFromEvent(canvas, evt) {
   const target = evt instanceof Element ? evt : evt.target;
   if (!target) return null;
   const el = target.closest?.(".canvas-node");
-  const scopeEl = el instanceof HTMLElement ? el : target instanceof HTMLElement ? target : null;
+  const scopeEl = el?.instanceOf(HTMLElement) ? el : target.instanceOf(HTMLElement) ? target : null;
   if (!scopeEl) return null;
   for (const node of canvas.nodes.values()) {
     const nel = node.nodeEl;
@@ -729,15 +729,17 @@ var EdgeAnchorsController = class {
     this.origUpdatePath = proto.updatePath;
     this.origGetBBox = proto.getBBox;
     this.origUpdate = proto.update;
-    const controller = this;
+    const onUpdatePath = (e) => this.patchedUpdatePath(e);
+    const onGetBBox = (e) => this.patchedGetBBox(e);
+    const onUpdate = (e, from, to) => this.patchedUpdate(e, from, to);
     proto.updatePath = function() {
-      controller.patchedUpdatePath(this);
+      onUpdatePath(this);
     };
     proto.getBBox = function() {
-      return controller.patchedGetBBox(this);
+      return onGetBBox(this);
     };
     proto.update = function(from, to) {
-      controller.patchedUpdate(this, from, to);
+      onUpdate(this, from, to);
     };
   }
   patchedGetBBox(edge) {
@@ -761,7 +763,7 @@ var EdgeAnchorsController = class {
   patchedUpdatePath(edge) {
     const path = edge.path;
     if (!path?.interaction || !path?.display) {
-      this.origUpdatePath?.call(edge);
+      if (path) this.origUpdatePath?.call(edge);
       return;
     }
     const { from, to } = edge;
@@ -951,7 +953,7 @@ var EdgeAnchorsController = class {
     return pair;
   }
   makeHandle(canvas, end) {
-    const el = document.createElement("div");
+    const el = createEl("div");
     el.className = "jce-edge-handle";
     el.dataset.end = end;
     el.hidden = true;
@@ -1064,7 +1066,7 @@ var EdgeAnchorsController = class {
   showPreviewDot(canvas, pt, centered) {
     let dot = this.previewDots.get(canvas);
     if (!dot || !canvas.canvasEl.contains(dot)) {
-      dot = document.createElement("div");
+      dot = createEl("div");
       dot.className = "jce-anchor-dot";
       canvas.canvasEl.appendChild(dot);
       this.previewDots.set(canvas, dot);
@@ -1533,7 +1535,7 @@ function drawOverlay(canvas) {
   svg.setAttribute("width", String(w));
   svg.setAttribute("height", String(h));
   styleOverlay(svg, minX, minY, w, h);
-  const frag = document.createDocumentFragment();
+  const frag = createFragment();
   for (const seg of segments) {
     const path = document.createElementNS(NS, "path");
     path.setAttribute("d", seg.d);
@@ -1657,7 +1659,7 @@ var Chrome = class {
   schedule(canvas) {
     if (this.scheduled.has(canvas)) return;
     this.scheduled.add(canvas);
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scheduled.delete(canvas);
       this.sync(canvas);
     });
@@ -1769,7 +1771,7 @@ var Chrome = class {
     if (!doc?.documentElement) return;
     let style = doc.getElementById(IFRAME_STYLE_ID);
     if (!style) {
-      style = doc.createElement("style");
+      style = createEl("style");
       style.id = IFRAME_STYLE_ID;
       (doc.head ?? doc.documentElement).appendChild(style);
     }
@@ -2215,7 +2217,7 @@ var ChronosController = class {
       if (isFullRange) {
         matched = true;
         if (hasDate) datedMatched++;
-      } else if (hasDate) {
+      } else if (ranges && ranges.length > 0) {
         matched = rangesIntersect(ranges, state.selStart, state.selEnd);
         if (matched) datedMatched++;
       } else {
@@ -2308,13 +2310,13 @@ var ChronosController = class {
       const value = textNode.nodeValue ?? "";
       const matches = parseDatesFromText(value);
       if (!matches.length) continue;
-      const frag = document.createDocumentFragment();
+      const frag = createFragment();
       let cursor = 0;
       for (const m of matches) {
         if (m.index > cursor) {
           frag.appendChild(document.createTextNode(value.slice(cursor, m.index)));
         }
-        const span = document.createElement("span");
+        const span = createEl("span");
         span.className = "jce-chronos-date";
         span.dataset.nodeId = node.id;
         span.dataset.start = String(m.start);
@@ -3396,7 +3398,7 @@ var CanvasPngExporter = class {
     const cy = (bbox.minY + bbox.maxY) / 2;
     canvas.setViewport(cx, cy, 1);
     await new Promise((resolve) => {
-      requestAnimationFrame(() => window.setTimeout(resolve, 90));
+      window.requestAnimationFrame(() => window.setTimeout(resolve, 90));
     });
     return () => {
       canvas.setViewport?.(prevX, prevY, prevZoom);
@@ -3405,7 +3407,7 @@ var CanvasPngExporter = class {
   // ------------------------------------------------------------------ DOM clone
   async buildClonedWorld(canvas, targets, worldX, worldY, worldW, worldH, selectionOnly) {
     const targetIds = new Set(targets.map((n) => n.id));
-    const stage = document.createElement("div");
+    const stage = createEl("div");
     stage.className = "canvas-wrapper jce-export-stage";
     stage.style.cssText = [
       "position: relative",
@@ -3415,7 +3417,7 @@ var CanvasPngExporter = class {
       "background: transparent",
       "pointer-events: none"
     ].join(";");
-    const world = document.createElement("div");
+    const world = createEl("div");
     world.className = "canvas";
     world.style.cssText = [
       "position: absolute",
@@ -3425,7 +3427,7 @@ var CanvasPngExporter = class {
       "transform-origin: 0 0"
     ].join(";");
     for (const child of Array.from(canvas.canvasEl.children)) {
-      if (child instanceof SVGSVGElement) {
+      if (child.instanceOf(SVGSVGElement)) {
         if (selectionOnly && !child.classList.contains("jce-overlay")) {
           const svgClone = child.cloneNode(true);
           this.filterSelectionEdges(canvas, svgClone, targetIds);
@@ -3495,7 +3497,7 @@ var CanvasPngExporter = class {
     for (let i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
       try {
         const dataUrl = origCanvases[i].toDataURL("image/png");
-        const img = document.createElement("img");
+        const img = createEl("img");
         img.src = dataUrl;
         img.style.cssText = cloneCanvases[i].style.cssText;
         img.width = origCanvases[i].width;
@@ -3525,7 +3527,7 @@ var CanvasPngExporter = class {
   imgElementToDataUrl(img) {
     try {
       if (!img.complete || img.naturalWidth === 0) return null;
-      const c = document.createElement("canvas");
+      const c = createEl("canvas");
       c.width = img.naturalWidth;
       c.height = img.naturalHeight;
       const ctx = c.getContext("2d");
@@ -3538,9 +3540,10 @@ var CanvasPngExporter = class {
   }
   async toDataUrl(url) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const blob = await res.blob();
+      const res = await (0, import_obsidian4.requestUrl)({ url });
+      if (res.status < 200 || res.status >= 300) return null;
+      const mime = res.headers["content-type"]?.split(";")[0]?.trim() || "image/png";
+      const blob = new Blob([res.arrayBuffer], { type: mime });
       return await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
@@ -3651,7 +3654,7 @@ ${safeCss}
       el.onerror = () => reject(new Error("SVG \u56FE\u50CF\u89E3\u6790\u5931\u8D25\uFF08\u53EF\u80FD\u662F\u6837\u5F0F\u6216\u5D4C\u5165\u8D44\u6E90\u683C\u5F0F\u5F02\u5E38\uFF09"));
       el.src = url;
     });
-    const outCanvas = document.createElement("canvas");
+    const outCanvas = createEl("canvas");
     outCanvas.width = outW;
     outCanvas.height = outH;
     const ctx = outCanvas.getContext("2d");
@@ -3672,7 +3675,7 @@ ${safeCss}
   }
   triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = createEl("a");
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);
@@ -3710,16 +3713,16 @@ var FormatBar = class {
     this.hooked = /* @__PURE__ */ new WeakSet();
     this.followFrame = 0;
     this.syncTimer = 0;
-    this.el = document.createElement("div");
+    this.el = createEl("div");
     this.el.className = "jce-format-bar";
     this.el.hidden = true;
-    this.colorBox = document.createElement("div");
+    this.colorBox = createEl("div");
     this.colorBox.className = "jce-format-pop jce-format-swatches";
     this.colorBox.hidden = true;
-    this.linkBox = document.createElement("div");
+    this.linkBox = createEl("div");
     this.linkBox.className = "jce-format-pop jce-format-link";
     this.linkBox.hidden = true;
-    this.linkInput = document.createElement("input");
+    this.linkInput = createEl("input");
     this.build();
     document.body.appendChild(this.el);
     this.plugin.register(() => {
@@ -3734,17 +3737,17 @@ var FormatBar = class {
   }
   // -------------------------------------------------------------------- ui
   build() {
-    const row = document.createElement("div");
+    const row = createEl("div");
     row.className = "jce-format-row";
     let group = -1;
     for (const btn of BUTTONS) {
       if (group !== -1 && btn.group !== group) {
-        const sep = document.createElement("span");
+        const sep = createEl("span");
         sep.className = "jce-format-sep";
         row.appendChild(sep);
       }
       group = btn.group;
-      const el = document.createElement("button");
+      const el = createEl("button");
       el.type = "button";
       el.className = `jce-format-btn jce-fmt-${btn.id}`;
       el.dataset.fmt = btn.id;
@@ -3754,7 +3757,7 @@ var FormatBar = class {
         el.classList.add("jce-fmt-icon");
         (0, import_obsidian5.setIcon)(el, "paint-bucket");
       } else {
-        const glyph = document.createElement("span");
+        const glyph = createEl("span");
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
         glyph.textContent = btn.glyph;
         el.appendChild(glyph);
@@ -3771,7 +3774,7 @@ var FormatBar = class {
     this.linkInput.type = "text";
     this.linkInput.placeholder = "https://";
     this.linkInput.className = "jce-format-input";
-    const apply = document.createElement("button");
+    const apply = createEl("button");
     apply.type = "button";
     apply.className = "jce-format-apply";
     apply.textContent = "\u786E\u5B9A";
@@ -3865,10 +3868,9 @@ var FormatBar = class {
   selectionRect(target) {
     const main = target.view.state.selection.main;
     if (main.empty) return null;
-    const coords = target.view.coordsAtPos;
-    if (typeof coords !== "function") return null;
-    const a = coords.call(target.view, main.from, 1);
-    const b = coords.call(target.view, main.to, -1);
+    if (typeof target.view.coordsAtPos !== "function") return null;
+    const a = target.view.coordsAtPos(main.from, 1);
+    const b = target.view.coordsAtPos(main.to, -1);
     if (!a || !b) return null;
     const left = Math.min(a.left, b.left);
     const right2 = Math.max(a.right ?? a.left, b.right ?? b.left);
@@ -3938,9 +3940,9 @@ var FormatBar = class {
         return;
       }
       this.place(rect);
-      this.followFrame = requestAnimationFrame(tick);
+      this.followFrame = window.requestAnimationFrame(tick);
     };
-    this.followFrame = requestAnimationFrame(tick);
+    this.followFrame = window.requestAnimationFrame(tick);
   }
   // --------------------------------------------------------------- actions
   run(id) {
@@ -3989,7 +3991,7 @@ var FormatBar = class {
     this.colorBox.replaceChildren();
     const colors = kind === "color" ? TEXT_COLORS : ["clear", ...BG_COLORS];
     for (const hex of colors) {
-      const swatch = document.createElement("button");
+      const swatch = createEl("button");
       swatch.type = "button";
       swatch.className = "jce-swatch";
       if (hex === "clear") {
@@ -4270,7 +4272,7 @@ var MinimapController = class {
   }
   scheduleDraw(canvas, state) {
     if (state.raf) return;
-    state.raf = requestAnimationFrame(() => {
+    state.raf = window.requestAnimationFrame(() => {
       state.raf = 0;
       if (!this.open || !state.rootEl.isConnected) return;
       this.draw(canvas, state);
@@ -4581,7 +4583,7 @@ var CanvasToolbar = class {
     this.onChronos = onChronos;
     this.onOutline = onOutline;
     this.current = "select";
-    this.el = document.createElement("div");
+    this.el = createEl("div");
     this.el.className = "jce-toolbar";
     this.el.setAttribute("role", "toolbar");
     this.el.setAttribute("aria-label", "Canvas Joy");
@@ -4960,7 +4962,7 @@ function startEditingWhenReady(canvas, node, tries = 0) {
   if (!el?.isConnected) {
     if (tries > 20) return;
     canvas.requestFrame();
-    requestAnimationFrame(() => startEditingWhenReady(canvas, node, tries + 1));
+    window.requestAnimationFrame(() => startEditingWhenReady(canvas, node, tries + 1));
     return;
   }
   if (!node.isEditing) {
@@ -4978,7 +4980,7 @@ function startEditingWhenReady(canvas, node, tries = 0) {
   }
   if (tries < 30) {
     canvas.requestFrame();
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       const live = canvas.nodes.get(node.id) ?? node;
       if (!live.isEditing) startEditingWhenReady(canvas, live, tries + 1);
     });
@@ -5269,7 +5271,7 @@ function parseChineseNumber(raw) {
 }
 var FRONT_MATTER_RE = /^(?:导言|序言|序章|前言|自序|译序|绪论|引言)/;
 var BACK_MATTER_RE = /^(?:结语|后记|跋|附录|专业术语表|术语表|索引|参考文献)/;
-var CHAPTER_PREFIX_RE = /^(?:第([零〇一二两三四五六七八九十百千0-9]+)[章编部篇回节]|Ch(?:apter)?\.?\s*(\d+)|Part\s*(\d+)|(\d+)(?:\.\d+)?[\s.、:：\-])/i;
+var CHAPTER_PREFIX_RE = /^(?:第([零〇一二两三四五六七八九十百千0-9]+)[章编部篇回节]|Ch(?:apter)?\.?\s*(\d+)|Part\s*(\d+)|(\d+)(?:\.\d+)?[\s.、:：-])/i;
 function naturalRank(label) {
   const s = label.trim();
   if (FRONT_MATTER_RE.test(s)) return { bucket: 0, num: 0, text: s };
@@ -5670,7 +5672,7 @@ var SectionOutlineController = class {
     const prev = this.pulseTimers.get(node);
     if (prev) window.clearTimeout(prev);
     el.classList.remove("jce-outline-pulse");
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       el.classList.add("jce-outline-pulse");
       const timer = window.setTimeout(() => {
         el.classList.remove("jce-outline-pulse");
@@ -6106,7 +6108,7 @@ var TodoController = class {
     if (!input) {
       if (!target?.classList?.contains("canvas-node-content-blocker") || !(evt instanceof MouseEvent)) return null;
       const found = document.elementsFromPoint(evt.clientX, evt.clientY).find(
-        (el) => el instanceof HTMLInputElement && el.classList.contains("task-list-item-checkbox")
+        (el) => el.instanceOf(HTMLInputElement) && el.classList.contains("task-list-item-checkbox")
       );
       input = found ?? null;
     }

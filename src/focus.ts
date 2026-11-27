@@ -113,7 +113,7 @@ export class FocusController {
     const existing = this.states.get(canvas)?.pillEl;
     if (existing && existing.isConnected) return existing;
 
-    const host = (canvas.wrapperEl.closest(".view-content") as HTMLElement | null) ?? canvas.wrapperEl;
+    const host = canvas.wrapperEl.closest(".view-content") ?? canvas.wrapperEl;
 
     const pill = host.createDiv({ cls: "jce-focus-pill" });
     pill.createSpan({ cls: "jce-focus-dot" });

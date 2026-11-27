@@ -78,7 +78,7 @@ export class TodoController {
         .elementsFromPoint(evt.clientX, evt.clientY)
         .find(
           (el): el is HTMLInputElement =>
-            el instanceof HTMLInputElement && el.classList.contains("task-list-item-checkbox")
+            el.instanceOf(HTMLInputElement) && el.classList.contains("task-list-item-checkbox")
         );
       input = found ?? null;
     }

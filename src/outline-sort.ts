@@ -73,7 +73,7 @@ export function parseChineseNumber(raw: string): number | null {
 const FRONT_MATTER_RE = /^(?:导言|序言|序章|前言|自序|译序|绪论|引言)/;
 const BACK_MATTER_RE = /^(?:结语|后记|跋|附录|专业术语表|术语表|索引|参考文献)/;
 const CHAPTER_PREFIX_RE =
-  /^(?:第([零〇一二两三四五六七八九十百千0-9]+)[章编部篇回节]|Ch(?:apter)?\.?\s*(\d+)|Part\s*(\d+)|(\d+)(?:\.\d+)?[\s.、:：\-])/i;
+  /^(?:第([零〇一二两三四五六七八九十百千0-9]+)[章编部篇回节]|Ch(?:apter)?\.?\s*(\d+)|Part\s*(\d+)|(\d+)(?:\.\d+)?[\s.、:：-])/i;
 
 function naturalRank(label: string): { bucket: number; num: number; text: string } {
   const s = label.trim();

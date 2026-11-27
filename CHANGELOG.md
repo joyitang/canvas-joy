@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2
+
+- [x] 按 Obsidian 官方插件规范清理代码告警：替换 `createEl` / `createFragment`、`window.requestAnimationFrame`、`.instanceOf(...)`、`requestUrl` 与显式 `@codemirror/view` 依赖，移除多余类型断言与 `this` 别名
+- [x] 修复视口外未渲染连线在初始化重绘时的 `path` 空引用异常
+- [x] 新增 GitHub Actions 发布工作流并启用 Artifact Attestations 构建溯源签名
+
 ## 1.7.1
 
 - [x] 修复 `export.ts` 静态样式赋值以符合 Obsidian 官方插件规范（改用 `setCssProps`）

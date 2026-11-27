@@ -72,16 +72,16 @@ export class FormatBar {
   private syncTimer = 0;
 
   constructor(private plugin: Plugin) {
-    this.el = document.createElement("div");
+    this.el = createEl("div");
     this.el.className = "jce-format-bar";
     this.el.hidden = true;
-    this.colorBox = document.createElement("div");
+    this.colorBox = createEl("div");
     this.colorBox.className = "jce-format-pop jce-format-swatches";
     this.colorBox.hidden = true;
-    this.linkBox = document.createElement("div");
+    this.linkBox = createEl("div");
     this.linkBox.className = "jce-format-pop jce-format-link";
     this.linkBox.hidden = true;
-    this.linkInput = document.createElement("input");
+    this.linkInput = createEl("input");
     this.build();
     document.body.appendChild(this.el);
     // Reloading the plugin must not leave an orphan bar behind.
@@ -102,18 +102,18 @@ export class FormatBar {
   // -------------------------------------------------------------------- ui
 
   private build(): void {
-    const row = document.createElement("div");
+    const row = createEl("div");
     row.className = "jce-format-row";
     let group = -1;
     for (const btn of BUTTONS) {
       if (group !== -1 && btn.group !== group) {
-        const sep = document.createElement("span");
+        const sep = createEl("span");
         sep.className = "jce-format-sep";
         row.appendChild(sep);
       }
       group = btn.group;
 
-      const el = document.createElement("button");
+      const el = createEl("button");
       el.type = "button";
       el.className = `jce-format-btn jce-fmt-${btn.id}`;
       el.dataset.fmt = btn.id;
@@ -125,7 +125,7 @@ export class FormatBar {
         el.classList.add("jce-fmt-icon");
         setIcon(el, "paint-bucket");
       } else {
-        const glyph = document.createElement("span");
+        const glyph = createEl("span");
         glyph.className = `jce-fmt-glyph jce-fmt-glyph-${btn.id}`;
         glyph.textContent = btn.glyph;
         el.appendChild(glyph);
@@ -143,7 +143,7 @@ export class FormatBar {
     this.linkInput.type = "text";
     this.linkInput.placeholder = "https://";
     this.linkInput.className = "jce-format-input";
-    const apply = document.createElement("button");
+    const apply = createEl("button");
     apply.type = "button";
     apply.className = "jce-format-apply";
     apply.textContent = "确定";
@@ -246,10 +246,9 @@ export class FormatBar {
   private selectionRect(target: Target): DOMRect | null {
     const main = target.view.state.selection.main;
     if (main.empty) return null;
-    const coords = target.view.coordsAtPos;
-    if (typeof coords !== "function") return null;
-    const a = coords.call(target.view, main.from, 1);
-    const b = coords.call(target.view, main.to, -1);
+    if (typeof target.view.coordsAtPos !== "function") return null;
+    const a = target.view.coordsAtPos(main.from, 1);
+    const b = target.view.coordsAtPos(main.to, -1);
     if (!a || !b) return null;
 
     const left = Math.min(a.left, b.left);
@@ -330,9 +329,9 @@ export class FormatBar {
         return;
       }
       this.place(rect);
-      this.followFrame = requestAnimationFrame(tick);
+      this.followFrame = window.requestAnimationFrame(tick);
     };
-    this.followFrame = requestAnimationFrame(tick);
+    this.followFrame = window.requestAnimationFrame(tick);
   }
 
   // --------------------------------------------------------------- actions
@@ -386,7 +385,7 @@ export class FormatBar {
     this.colorBox.replaceChildren();
     const colors = kind === "color" ? TEXT_COLORS : ["clear", ...BG_COLORS];
     for (const hex of colors) {
-      const swatch = document.createElement("button");
+      const swatch = createEl("button");
       swatch.type = "button";
       swatch.className = "jce-swatch";
       if (hex === "clear") {

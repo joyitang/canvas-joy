@@ -88,7 +88,7 @@ export function drawOverlay(canvas: CanvasLike): void {
   svg.setAttribute("height", String(h));
   styleOverlay(svg, minX, minY, w, h);
 
-  const frag = document.createDocumentFragment();
+  const frag = createFragment();
   for (const seg of segments) {
     const path = document.createElementNS(NS, "path");
     path.setAttribute("d", seg.d);

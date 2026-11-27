@@ -330,8 +330,8 @@ export class ChronosController {
       if (isFullRange) {
         matched = true;
         if (hasDate) datedMatched++;
-      } else if (hasDate) {
-        matched = rangesIntersect(ranges!, state.selStart, state.selEnd);
+      } else if (ranges && ranges.length > 0) {
+        matched = rangesIntersect(ranges, state.selStart, state.selEnd);
         if (matched) datedMatched++;
       } else {
         matched = true;
@@ -401,8 +401,8 @@ export class ChronosController {
     }
 
     const content =
-      (el.querySelector(".markdown-preview-view") as HTMLElement | null) ??
-      (el.querySelector(".canvas-node-content") as HTMLElement | null);
+      el.querySelector<HTMLElement>(".markdown-preview-view") ??
+      el.querySelector<HTMLElement>(".canvas-node-content");
     if (!content) return;
 
     // Update active highlight on existing spans if already decorated for current text
@@ -447,13 +447,13 @@ export class ChronosController {
       const matches = parseDatesFromText(value);
       if (!matches.length) continue;
 
-      const frag = document.createDocumentFragment();
+      const frag = createFragment();
       let cursor = 0;
       for (const m of matches) {
         if (m.index > cursor) {
           frag.appendChild(document.createTextNode(value.slice(cursor, m.index)));
         }
-        const span = document.createElement("span");
+        const span = createEl("span");
         span.className = "jce-chronos-date";
         span.dataset.nodeId = node.id;
         span.dataset.start = String(m.start);
@@ -515,8 +515,8 @@ export class ChronosController {
     if (isFullRange || !cardMatched || isEditing(node)) return;
 
     const content =
-      (el.querySelector(".markdown-preview-view") as HTMLElement | null) ??
-      (el.querySelector(".canvas-node-content") as HTMLElement | null);
+      el.querySelector<HTMLElement>(".markdown-preview-view") ??
+      el.querySelector<HTMLElement>(".canvas-node-content");
     if (!content) return;
 
     const allSpans = Array.from(content.querySelectorAll<HTMLElement>(".jce-chronos-date"));
@@ -610,7 +610,7 @@ export class ChronosController {
 
     // 1. Chronos ON: single-click on an underlined `.jce-chronos-date` focuses/resets timeline
     //    (pierces `.canvas-node-content-blocker` so an unselected card works on the very first click).
-    const wrapper = target.closest?.(".canvas-wrapper") as HTMLElement | null;
+    const wrapper = target.closest?.(".canvas-wrapper");
     const canvas = wrapper ? this.canvasForElement(wrapper) : null;
 
     if (canvas && this.isActive(canvas) && evt.detail === 1) {
@@ -673,7 +673,7 @@ export class ChronosController {
   private ensureBar(canvas: CanvasLike, state: ChronosState): HTMLElement {
     if (state.barEl && state.barEl.isConnected) return state.barEl;
     const host =
-      (canvas.wrapperEl.closest(".view-content") as HTMLElement | null) ??
+      canvas.wrapperEl.closest(".view-content") ??
       canvas.wrapperEl;
 
     const bar = host.createDiv({ cls: "jce-chronos-bar" });
@@ -1028,7 +1028,7 @@ function findDateSpanAtEvent(
   clientX: number,
   clientY: number
 ): HTMLElement | null {
-  const direct = target.closest?.(".jce-chronos-date") as HTMLElement | null;
+  const direct = target.closest?.<HTMLElement>(".jce-chronos-date");
   if (direct) return direct;
 
   // Unselected cards sit behind `.canvas-node-content-blocker`; check hit-boxes directly.

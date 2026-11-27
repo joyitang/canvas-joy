@@ -99,7 +99,7 @@ export function startEditingWhenReady(canvas: CanvasLike, node: NodeLike, tries 
   if (!el?.isConnected) {
     if (tries > 20) return;
     canvas.requestFrame();
-    requestAnimationFrame(() => startEditingWhenReady(canvas, node, tries + 1));
+    window.requestAnimationFrame(() => startEditingWhenReady(canvas, node, tries + 1));
     return;
   }
 
@@ -125,7 +125,7 @@ export function startEditingWhenReady(canvas: CanvasLike, node: NodeLike, tries 
   // destroyed markdown view). Give it up to ~30 frames to settle.
   if (tries < 30) {
     canvas.requestFrame();
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       const live = canvas.nodes.get(node.id) ?? node;
       if (!live.isEditing) startEditingWhenReady(canvas, live, tries + 1);
     });

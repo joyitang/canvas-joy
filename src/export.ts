@@ -13,7 +13,7 @@
  *    rasterization never taints the output canvas.
  */
 
-import { Menu, Notice, TFile } from "obsidian";
+import { Menu, Notice, TFile, requestUrl } from "obsidian";
 import { BBox, CanvasLike, NodeLike, allNodes, scaleOf, selectedNodes } from "./bridge";
 import { isGroupNode, nodesInsideGroup } from "./model";
 
@@ -257,7 +257,7 @@ export class CanvasPngExporter {
 
     canvas.setViewport(cx, cy, 1);
     await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => window.setTimeout(resolve, 90));
+      window.requestAnimationFrame(() => window.setTimeout(resolve, 90));
     });
 
     return () => {
@@ -277,7 +277,7 @@ export class CanvasPngExporter {
     selectionOnly: boolean
   ): Promise<HTMLElement> {
     const targetIds = new Set(targets.map((n) => n.id));
-    const stage = document.createElement("div");
+    const stage = createEl("div");
     stage.className = "canvas-wrapper jce-export-stage";
     stage.style.cssText = [
       "position: relative",
@@ -288,7 +288,7 @@ export class CanvasPngExporter {
       "pointer-events: none",
     ].join(";");
 
-    const world = document.createElement("div");
+    const world = createEl("div");
     world.className = "canvas";
     world.style.cssText = [
       "position: absolute",
@@ -300,7 +300,7 @@ export class CanvasPngExporter {
 
     // 1. Copy mindmap overlay & native edge SVG layers in world coordinates.
     for (const child of Array.from(canvas.canvasEl.children)) {
-      if (child instanceof SVGSVGElement) {
+      if (child.instanceOf(SVGSVGElement)) {
         if (selectionOnly && !child.classList.contains("jce-overlay")) {
           // Keep edges that connect two selected nodes; drop unrelated ones.
           const svgClone = child.cloneNode(true) as SVGSVGElement;
@@ -389,7 +389,7 @@ export class CanvasPngExporter {
     for (let i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
       try {
         const dataUrl = origCanvases[i].toDataURL("image/png");
-        const img = document.createElement("img");
+        const img = createEl("img");
         img.src = dataUrl;
         img.style.cssText = cloneCanvases[i].style.cssText;
         img.width = origCanvases[i].width;
@@ -424,7 +424,7 @@ export class CanvasPngExporter {
   private imgElementToDataUrl(img: HTMLImageElement): string | null {
     try {
       if (!img.complete || img.naturalWidth === 0) return null;
-      const c = document.createElement("canvas");
+      const c = createEl("canvas");
       c.width = img.naturalWidth;
       c.height = img.naturalHeight;
       const ctx = c.getContext("2d");
@@ -438,9 +438,10 @@ export class CanvasPngExporter {
 
   private async toDataUrl(url: string): Promise<string | null> {
     try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const blob = await res.blob();
+      const res = await requestUrl({ url });
+      if (res.status < 200 || res.status >= 300) return null;
+      const mime = res.headers["content-type"]?.split(";")[0]?.trim() || "image/png";
+      const blob = new Blob([res.arrayBuffer], { type: mime });
       return await new Promise<string | null>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
@@ -593,7 +594,7 @@ export class CanvasPngExporter {
       el.src = url;
     });
 
-    const outCanvas = document.createElement("canvas");
+    const outCanvas = createEl("canvas");
     outCanvas.width = outW;
     outCanvas.height = outH;
     const ctx = outCanvas.getContext("2d");
@@ -618,7 +619,7 @@ export class CanvasPngExporter {
 
   private triggerDownload(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = createEl("a");
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);

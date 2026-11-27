@@ -606,7 +606,7 @@ export default class CanvasEnhancePlugin extends Plugin {
     evt.preventDefault();
     evt.stopPropagation();
 
-    const at = placing.canvas.posFromEvt(evt as MouseEvent);
+    const at = placing.canvas.posFromEvt(evt);
     createObject(this.chrome, {
       canvas: placing.canvas,
       kind: placing.kind,

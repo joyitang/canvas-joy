@@ -83,7 +83,7 @@ export class CanvasSearchBar {
     if (existing && existing.barEl.isConnected) return existing;
     existing?.barEl.remove();
 
-    const host = canvas.wrapperEl.closest(".view-content") as HTMLElement | null;
+    const host = canvas.wrapperEl.closest(".view-content");
     if (!host) return null;
 
     const barEl = host.createDiv({ cls: "jce-search-bar" });

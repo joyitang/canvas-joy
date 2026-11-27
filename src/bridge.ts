@@ -155,7 +155,7 @@ const edgeCtors = new WeakMap<object, EdgeCtor>();
 
 export function uid(): string {
   const bytes = new Uint8Array(8);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -231,8 +231,8 @@ export function viewportCenter(canvas: CanvasLike, size: Size): Point {
 export function nodeFromEvent(canvas: CanvasLike, evt: Event | Element): NodeLike | null {
   const target = evt instanceof Element ? evt : (evt.target as Element | null);
   if (!target) return null;
-  const el = target.closest?.(".canvas-node") as HTMLElement | null;
-  const scopeEl = el instanceof HTMLElement ? el : target instanceof HTMLElement ? target : null;
+  const el = target.closest?.(".canvas-node");
+  const scopeEl = el?.instanceOf(HTMLElement) ? el : target.instanceOf(HTMLElement) ? target : null;
   if (!scopeEl) return null;
   for (const node of canvas.nodes.values()) {
     const nel = node.nodeEl;
@@ -344,7 +344,7 @@ export function createEdge(
     toSide: sides.to,
     toEnd: "arrow",
     ...extra,
-  } as RawEdge);
+  });
   canvas.setData(data);
   const made = canvas.edges.get(id);
   if (made) edgeCtors.set(canvas, (made as unknown as { constructor: EdgeCtor }).constructor);
